@@ -111,6 +111,108 @@ def bbox(m):
     return lo, hi
 
 
+CORNER = [(i & 1, (i >> 1) & 1, (i >> 2) & 1) for i in range(8)]
+# corner sets straight from the exe's CarcassCube::vertexIndex table (0x1db7030)
+SHAPE_CORNERS = {0: {0,1,2,3,4,5,6,7}, 1: {0,1,3,4,5,6,7}, 2: {0,1,4,5,6,7}, 3: {1,4,5,7}}
+SHAPE_CODE = {0: 'k8', 1: 'k7', 2: 'k6', 3: 'k4'}
+
+
+def corner_set(part, tol=.16):
+    """Which unit-cell corners the mesh actually reaches."""
+    got = set()
+    for s in part['sub']:
+        q = s['pos']
+        for i in range(0, len(q), 3):
+            v = (q[i], q[i+1], q[i+2])
+            for ci, c in enumerate(CORNER):
+                if all(abs(v[a]-c[a]) < tol for a in range(3)):
+                    got.add(ci)
+    return got
+
+
+def pick_shape_meshes(parts):
+    """Match each cube shape to the part whose corners reproduce its table exactly.
+
+    Prefers a mid-detail candidate so the four shapes read as one set rather than
+    mixing a 640-triangle cube with a 42-triangle tetrahedron.
+    """
+    out = {}
+    for shape, want in SHAPE_CORNERS.items():
+        cands = []
+        for p in parts:
+            zs = [c for s in p['sub'] for c in s['pos'][2::3]]
+            if max(zs) - min(zs) < .6:        # thin => a face plate, not a solid
+                continue
+            if corner_set(p) == want:
+                cands.append(p)
+        if not cands:
+            continue
+        target = 130
+        best = min(cands, key=lambda p: (abs(p['tris']-target), -p['tris']))
+        out[shape] = best
+        print(f"  shape {shape} {SHAPE_CODE[shape]}: {len(cands)} exact match(es), "
+              f"using {best['rid']} ({best['tris']} tris, {','.join(best['tex']) or 'no tex'})")
+    return out
+
+
+def _hull2d(pts):
+    pts = sorted(set(pts))
+    if len(pts) < 3:
+        return pts
+    def half(ps):
+        st = []
+        for p in ps:
+            while len(st) >= 2 and ((st[-1][0]-st[-2][0])*(p[1]-st[-2][1])
+                                    - (st[-1][1]-st[-2][1])*(p[0]-st[-2][0])) <= 1e-9:
+                st.pop()
+            st.append(p)
+        return st[:-1]
+    return half(pts) + half(pts[::-1])
+
+
+def outline(part):
+    pts = []
+    for s in part['sub']:
+        q = s['pos']
+        for i in range(0, len(q), 3):
+            pts.append((round(q[i], 3), round(q[i+1], 3)))
+    h = _hull2d(pts)
+    a = 0
+    for i in range(len(h)):
+        x1, y1 = h[i]
+        x2, y2 = h[(i+1) % len(h)]
+        a += x1*y2 - x2*y1
+    return h, abs(a)/2
+
+
+def pick_plate_meshes(parts, want_tris=(210, 14)):
+    """Decoration plates laid over a frame face: thin, and their outline is the
+    face polygon. One square and one triangular representative."""
+    out = {}
+    for key, target, wanted_area, sides in (('quad', want_tris[0], 1.0, 4),
+                                            ('tri', want_tris[1], .5, 3)):
+        cands = []
+        for p in parts:
+            if p['src'] != '_defaults.fbx':
+                continue
+            zs = [c for s in p['sub'] for c in s['pos'][2::3]]
+            if max(zs) - min(zs) >= .6 or max(zs) > .01:
+                continue                      # must be a thin slab hanging off z=0
+            h, a = outline(p)
+            if len(h) == sides and abs(a - wanted_area) < .06:
+                cands.append((p, h))
+        if not cands:
+            continue
+        p, h = min(cands, key=lambda c: abs(c[0]['tris'] - target))
+        out[key] = {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
+                    'outline': [[round(x, 4), round(y, 4)] for x, y in h],
+                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                            for s in p['sub']]}
+        print(f"  plate {key}: {len(cands)} candidate(s), using {p['rid']} "
+              f"({p['tris']} tris, outline {h})")
+    return out
+
+
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
     files = sorted(glob.glob(os.path.join(base, PARTS_DIR, '*.compiled')))
@@ -154,6 +256,24 @@ def main():
         f.write(';\n')
     kb = os.path.getsize(os.path.join(base, 'viewer', 'parts.js')) // 1024
     print(f"wrote recovered/parts.json + viewer/parts.js ({kb} KB)")
+
+    print("matching cube shapes to part meshes by corner set:")
+    shapes = pick_shape_meshes(parts)
+    slim = {str(k): {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
+                     'code': SHAPE_CODE[k],
+                     'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                             for s in p['sub']]}
+            for k, p in shapes.items()}
+    print("picking decoration plates:")
+    plates = pick_plate_meshes(parts)
+    with open(os.path.join(base, 'viewer', 'shapes.js'), 'w') as f:
+        f.write('const SHAPE_MESH = ')
+        json.dump(slim, f, separators=(',', ':'))
+        f.write(';\nconst PLATE_MESH = ')
+        json.dump(plates, f, separators=(',', ':'))
+        f.write(';\n')
+    kb = os.path.getsize(os.path.join(base, 'viewer', 'shapes.js')) // 1024
+    print(f"wrote viewer/shapes.js ({kb} KB) for {len(slim)}/4 shapes")
 
 
 if __name__ == '__main__':

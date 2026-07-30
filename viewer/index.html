@@ -131,6 +131,7 @@
   <button id="btnTex" aria-pressed="true">текстуры</button>
   <button id="btnCham" aria-pressed="true">фаски</button>
   <button id="btnAO" aria-pressed="true">затенение</button>
+  <button id="btnParts" aria-pressed="false" title="Подставить извлечённые меши деталей вместо процедурных граней">детали</button>
 </header>
 <main>
   <nav id="registry" aria-label="Реестр кораблей"></nav>
@@ -141,6 +142,7 @@
 </main>
 <script src="three.min.js"></script>
 <script src="ships.js"></script>
+<script src="shapes.js"></script>
 <script>
 /* ════════ data semantics ════════ */
 const COMP = {
@@ -479,7 +481,7 @@ renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *
 
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
-let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true;
+let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true, partsOn=false;
 
 /* vertex colours = compartment tint (or plain hull) x baked occlusion */
 function paintColors(g) {
@@ -528,6 +530,101 @@ function buildShip(name, keepView) {
     }
     return true;
   });
+
+  /* ── real part meshes in place of the procedural hull ──
+     Each cube shape was matched to a decoded mesh by corner set: the mesh's
+     corners reproduce the engine's own vertexIndex table exactly (k7, k6 and k4
+     had a single candidate each). The mesh is authored in the unit cell, so it
+     rides the same rotate-about-centre transform the facets use. */
+  if (partsOn && typeof SHAPE_MESH !== 'undefined') {
+    const occ2 = occupancyOf(ship.cubes);
+    const pos=[], col=[], nrm=[];
+    const cHull = new THREE.Color(COMP[HULL_ID].c);
+    let missing = 0;
+    for (const cb of ship.cubes) {
+      const sm = SHAPE_MESH[cb.shape];
+      if (!sm) { missing++; continue; }
+      const M = ORIENTATIONS[cb.o];
+      const own = `${cb.x},${cb.y},${cb.z}`;
+      const c = compColorOn ? new THREE.Color(COMP[cb.comp].c) : cHull;
+      for (const s of sm.sub) {
+        for (const i of s.idx) {
+          const p = [s.pos[i*3]-.5, s.pos[i*3+1]-.5, s.pos[i*3+2]-.5];
+          const w = [M[0]*p[0]+M[1]*p[1]+M[2]*p[2]+.5+cb.x,
+                     M[3]*p[0]+M[4]*p[1]+M[5]*p[2]+.5+cb.y,
+                     M[6]*p[0]+M[7]*p[1]+M[8]*p[2]+.5+cb.z];
+          const n0 = [s.nrm[i*3], s.nrm[i*3+1], s.nrm[i*3+2]];
+          const n = [M[0]*n0[0]+M[1]*n0[1]+M[2]*n0[2],
+                     M[3]*n0[0]+M[4]*n0[1]+M[5]*n0[2],
+                     M[6]*n0[0]+M[7]*n0[1]+M[8]*n0[2]];
+          pos.push(...w); nrm.push(...n);
+          const a = aoOn ? vertexAO(w, n, occ2, own) : 1;
+          col.push(c.r*a, c.g*a, c.b*a);
+        }
+      }
+    }
+    /* decoration plates ride over the frame's exterior faces. Each plate mesh is
+       authored on a unit face at z=0 hanging back to -depth, so it maps onto a
+       facet through the affine frame the facet itself defines — which also means
+       plates inherit the facet culling for free. */
+    if (typeof PLATE_MESH !== 'undefined') {
+      const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+      const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
+      for (const f of kept) {
+        const pm = PLATE_MESH[f.verts.length === 4 ? 'quad' : 'tri'];
+        if (!pm) continue;
+        const v0 = f.verts[0], E1 = sub(f.verts[1], v0), E2 = sub(f.verts[2], v0);
+        let n = norm(cross(norm(E1), E2));
+        const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
+                           .map(x=>x/f.verts.length);
+        const at = s => occ2.get(`${Math.floor(cen[0]+s*.25*n[0])},${Math.floor(cen[1]+s*.25*n[1])},${Math.floor(cen[2]+s*.25*n[2])}`) || 0;
+        if (at(+1) > at(-1)) n = [-n[0],-n[1],-n[2]];
+        /* solve the plate's local outline onto this facet */
+        const [a0,a1,a2] = pm.outline;
+        const d1=[a1[0]-a0[0], a1[1]-a0[1]], d2=[a2[0]-a0[0], a2[1]-a0[1]];
+        const det = d1[0]*d2[1] - d1[1]*d2[0];
+        if (!det) continue;
+        const c = compColorOn ? new THREE.Color(COMP[f.comp].c)
+                              : new THREE.Color(COMP[HULL_ID].c);
+        for (const s of pm.sub) for (const i of s.idx) {
+          const lx = s.pos[i*3]-a0[0], ly = s.pos[i*3+1]-a0[1], lz = s.pos[i*3+2];
+          const t1 = ( lx*d2[1] - ly*d2[0]) / det;
+          const t2 = (-lx*d1[1] + ly*d1[0]) / det;
+          const w = [v0[0]+t1*E1[0]+t2*E2[0]+lz*n[0],
+                     v0[1]+t1*E1[1]+t2*E2[1]+lz*n[1],
+                     v0[2]+t1*E1[2]+t2*E2[2]+lz*n[2]];
+          const m1 = ( s.nrm[i*3]*d2[1] - s.nrm[i*3+1]*d2[0]) / det;
+          const m2 = (-s.nrm[i*3]*d1[1] + s.nrm[i*3+1]*d1[0]) / det;
+          const nz = s.nrm[i*3+2];
+          const wn = norm([m1*E1[0]+m2*E2[0]+nz*n[0],
+                           m1*E1[1]+m2*E2[1]+nz*n[1],
+                           m1*E1[2]+m2*E2[2]+nz*n[2]]);
+          pos.push(...w); nrm.push(...wn);
+          const a = aoOn ? vertexAO(w, wn, occ2, null) : 1;
+          col.push(c.r*a*1.06, c.g*a*1.06, c.b*a*1.06);
+        }
+      }
+    }
+
+    const gp = new THREE.BufferGeometry();
+    gp.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+    gp.setAttribute('normal', new THREE.Float32BufferAttribute(nrm,3));
+    gp.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+    meshSolid = new THREE.Mesh(gp, new THREE.MeshStandardMaterial({
+      vertexColors:true, side:THREE.DoubleSide, roughness:.72, metalness:.14}));
+    meshSolid.castShadow = meshSolid.receiveShadow = true;
+    gp.userData = {col, colHull:col, ao:null};
+    group.add(meshSolid);
+    if (edgesOn) {
+      edgeLines = new THREE.LineSegments(new THREE.EdgesGeometry(gp, 32),
+        new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true, opacity:.18}));
+      group.add(edgeLines);
+    }
+    buildWings(ship, occ2);
+    finishShip(ship, view);
+    return;
+  }
 
   const shown = chamferOn ? chamferFaces(kept, .07) : kept;
 
@@ -606,9 +703,17 @@ function buildShip(name, keepView) {
   edgeLines.visible = edgesOn;
   group.add(edgeLines);
 
-  /* wings — exact geometry: a flat polygon spanning cube corners, per the engine's
-     own tables. Zero thickness is faithful to the data; the plate mesh the engine
-     skinned onto it lives in the part catalogue but can't be tied to a type. */
+  buildWings(ship, occ);
+  finishShip(ship, view);
+}
+
+/* wings — exact geometry: a flat polygon spanning cube corners, per the engine's
+   own tables. Zero thickness is faithful to the data; the plate mesh the engine
+   skinned onto it lives in the part catalogue but can't be tied to a type. */
+function buildWings(ship, occ) {
+  const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
   if (ship.elements.length) {
     const wp = [], wc = [];
     const cw = new THREE.Color(WING_COLOR);
@@ -645,8 +750,10 @@ function buildShip(name, keepView) {
         new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true, opacity:.35})));
     }
   }
+}
 
-  /* center & fit */
+/* center, fit the camera and the shadow frustum, refresh the title block */
+function finishShip(ship, view) {
   const bb = new THREE.Box3().setFromObject(group);
   const c = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3());
   group.position.sub(c);
@@ -723,12 +830,21 @@ const btn = (id, fn) => { const b=document.getElementById(id);
     b.setAttribute('aria-pressed', on); fn(on); }; };
 btn('btnRot',  on => orbit.auto = on);
 btn('btnEdge', on => { edgesOn=on; if(edgeLines) edgeLines.visible=on; });
-btn('btnComp', on => { compColorOn=on; if (meshSolid) paintColors(meshSolid.geometry); });
-btn('btnAO',   on => { aoOn=on;        if (meshSolid) paintColors(meshSolid.geometry); });
+/* in parts mode the tint and occlusion are baked per vertex at build time,
+   so those toggles rebuild rather than repaint */
+btn('btnComp', on => { compColorOn=on; recolor(); });
+btn('btnAO',   on => { aoOn=on;        recolor(); });
+function recolor() {
+  if (partsOn) { if (currentName) buildShip(currentName, true); }
+  else if (meshSolid) paintColors(meshSolid.geometry);
+}
 btn('btnTex', on => { texOn=on;
   if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
     meshSolid.material.needsUpdate = true; } });
 btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, true); });
+btn('btnParts', on => { partsOn=on;
+  for (const id of ['btnTex','btnCham']) document.getElementById(id).disabled = on;
+  if (currentName) buildShip(currentName, true); });
 
 /* ════════ loop ════════ */
 function resize() {
