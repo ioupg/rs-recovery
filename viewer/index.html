@@ -156,8 +156,7 @@ const COMP = {
   9:{n:'мостик',     c:0xE5E9ED},
 };
 const HULL_ID = 8;
-const KIND = {0:'узел', 1:'крыло', 2:'модуль-2', 3:'модуль-3'};
-const ELEM_COLOR = 0x7BC4D4;
+const WING_COLOR = 0x51636F;
 
 /* faces per shape as corner-index loops (validated vs exe plate tables) */
 const FACES = {
@@ -607,18 +606,44 @@ function buildShip(name, keepView) {
   edgeLines.visible = edgesOn;
   group.add(edgeLines);
 
-  /* wings / modules */
-  for (const el of ship.elements) {
-    let geo;
-    if (el.kind===1) geo = new THREE.BoxGeometry(.1,.55,.9);       // wing fin
-    else if (el.kind===0) geo = new THREE.BoxGeometry(.5,.5,.5);
-    else geo = new THREE.OctahedronGeometry(.32);
-    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
-      color:ELEM_COLOR, transparent:true, opacity:.55}));
-    const M = ORIENTATIONS[el.o];
-    m.setRotationFromMatrix(new THREE.Matrix4().set(M[0],M[1],M[2],0, M[3],M[4],M[5],0, M[6],M[7],M[8],0, 0,0,0,1));
-    m.position.set(el.x+.5, el.y+.5, el.z+.5);
-    group.add(m);
+  /* wings — exact geometry: a flat polygon spanning cube corners, per the engine's
+     own tables. Zero thickness is faithful to the data; the plate mesh the engine
+     skinned onto it lives in the part catalogue but can't be tied to a type. */
+  if (ship.elements.length) {
+    const wp = [], wc = [];
+    const cw = new THREE.Color(WING_COLOR);
+    for (const el of ship.elements) {
+      const ring = WING_RING[el.kind];
+      if (!ring) continue;
+      const vs = ring.map(ci => {
+        const p = rot(el.o, corner(ci));
+        return [p[0]+el.x, p[1]+el.y, p[2]+el.z];
+      });
+      const nrm = norm(cross(norm(sub(vs[1],vs[0])), sub(vs[2],vs[0])));
+      const flip = [-nrm[0],-nrm[1],-nrm[2]];
+      /* a wing is open on both sides, so occlude it symmetrically */
+      const wao = vs.map(v => (vertexAO(v, nrm, occ, null) +
+                              vertexAO(v, flip, occ, null)) / 2);
+      for (let i=1; i<vs.length-1; i++)
+        for (const k of [0, i, i+1]) {
+          wp.push(...vs[k]);
+          const a = aoOn ? wao[k] : 1;
+          wc.push(cw.r*a, cw.g*a, cw.b*a);
+        }
+    }
+    if (wp.length) {
+      const gw = new THREE.BufferGeometry();
+      gw.setAttribute('position', new THREE.Float32BufferAttribute(wp,3));
+      gw.setAttribute('color', new THREE.Float32BufferAttribute(wc,3));
+      gw.computeVertexNormals();
+      const wing = new THREE.Mesh(gw, new THREE.MeshStandardMaterial({
+        vertexColors:true, side:THREE.DoubleSide, flatShading:true,
+        roughness:.85, metalness:.06}));
+      wing.castShadow = wing.receiveShadow = true;
+      group.add(wing);
+      group.add(new THREE.LineSegments(new THREE.EdgesGeometry(gw, 20),
+        new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true, opacity:.35})));
+    }
   }
 
   /* center & fit */
@@ -654,7 +679,10 @@ function stamp(ship, sz) {
       `<span class="bar"><i style="background:${col};width:${100*hist[k]/max}%"></i></span>` +
       `<span class="ct">${hist[k]}</span></div>`;
   }).join('');
-  const el = ship.elements.length ? `· элементы ${ship.elements.length}` : '';
+  const wh = {};
+  ship.elements.forEach(e => wh[e.kind] = (wh[e.kind]||0) + 1);
+  const el = ship.elements.length
+    ? '· крылья ' + Object.keys(wh).sort().map(k=>`${WING_NAMES[k]}×${wh[k]}`).join(' ') : '';
   document.getElementById('stamp').innerHTML =
    `<div class="row"><div class="cell grow"><span class="lab">корабль</span><div class="big">${ship.display}</div></div>
      <div class="cell"><span class="lab">борт №</span><div class="num">${ship.name.split('-')[0].toUpperCase()}</div></div></div>

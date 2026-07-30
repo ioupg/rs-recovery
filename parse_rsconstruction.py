@@ -21,6 +21,12 @@ SHAPE_CORNERS = {0: [0, 1, 2, 3, 4, 5, 6, 7],
                  3: [1, 4, 5, 7]}
 COMPARTMENTS = {0: 'cargo', 1: 'sys1', 2: 'sys2', 3: 'sys3', 4: 'sys4', 5: 'sys5',
                 6: 'engine', 7: 'sys7', 8: 'hull', 9: 'special'}
+# Wing types, from RedStar::Wing::verticesCount (exe 0x4428e0) and the vertexIndex
+# table at 0x1db7148; names from the pointer table at 0x1db7130. A wing is a flat
+# polygon spanning cube corners — the digits of each name are the squared edge
+# lengths of that polygon, which is how the tables were confirmed.
+WING_NAMES = {0: 'w1111', 1: 'w121', 2: 'w2121', 3: 'w321', 4: 'w222'}
+WING_RING = {0: [0, 1, 3, 2], 1: [0, 1, 2], 2: [0, 1, 7, 6], 3: [0, 1, 7], 4: [1, 4, 7]}
 # 24 orientation matrices (cube rotation group), from exe initializers @0x4020b0+
 ORIENTATIONS = [
     [1,0,0, 0,1,0, 0,0,1],   [1,0,0, 0,0,1, 0,-1,0],  [1,0,0, 0,-1,0, 0,0,-1], [1,0,0, 0,0,-1, 0,1,0],
@@ -70,7 +76,7 @@ def parse_file(path):
         orient = rec[0]
         x, y, z = struct.unpack_from('<iii', rec, 4)
         kind = struct.unpack_from('<I', rec, 16)[0]
-        assert orient < 24 and kind < 4, f'{path} elem{r}'
+        assert orient < 24 and kind < 5, f'{path} elem{r}'
         elements.append({'o': orient, 'x': x, 'y': y, 'z': z, 'kind': kind})
     return {'cubes': cubes, 'elements': elements}
 
@@ -149,6 +155,10 @@ def main():
         json.dump(ORIENTATIONS, f)
         f.write(';\nconst SHAPE_CORNERS = ')
         json.dump(SHAPE_CORNERS, f)
+        f.write(';\nconst WING_RING = ')
+        json.dump(WING_RING, f)
+        f.write(';\nconst WING_NAMES = ')
+        json.dump(WING_NAMES, f)
         f.write(';\n')
     print(f"\n{len(ships)} ships -> recovered/*.json + viewer/ships.js")
 

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>РЕД СТАР — каталог деталей</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext x='0' y='13' font-size='13' fill='%23D64545'%3E★%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --void:#0A0E14; --panel:#0F151E; --panel2:#131B26; --line:#22303E;
+    --ink:#C8D6E0; --dim:#5C7080; --faint:#3A4A58; --star:#D64545; --brass:#C9A227;
+    --focus:#4A90D9;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+    --disp:Bahnschrift,"Arial Narrow","Segoe UI",sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; }
+  body { background:var(--void); color:var(--ink); font-family:var(--mono);
+         font-size:12px; display:flex; flex-direction:column; }
+  header { display:flex; align-items:baseline; gap:14px; padding:10px 16px 8px;
+           border-bottom:1px solid var(--line); flex:none; user-select:none; }
+  header .star { color:var(--star); font-size:15px; }
+  header h1 { font-family:var(--disp); font-weight:600; font-size:16px;
+              letter-spacing:.22em; text-transform:uppercase; }
+  header h1 em { font-style:normal; color:var(--star); }
+  header .sub { color:var(--dim); letter-spacing:.06em; }
+  header .spacer { flex:1; }
+  header a, header button { background:none; border:1px solid var(--line); color:var(--dim);
+    font-family:var(--mono); font-size:11px; padding:4px 10px; cursor:pointer;
+    letter-spacing:.08em; text-decoration:none; }
+  header a:hover, header button:hover { color:var(--ink); border-color:var(--faint); }
+  header button[aria-pressed="true"] { color:var(--brass); border-color:var(--brass); }
+  header a:focus-visible, header button:focus-visible, .part:focus-visible {
+    outline:1px solid var(--focus); outline-offset:2px; }
+
+  main { flex:1; display:flex; min-height:0; }
+  #list { width:290px; flex:none; overflow-y:auto; border-right:1px solid var(--line);
+          background:var(--panel); scrollbar-width:thin;
+          scrollbar-color:var(--faint) transparent; }
+  .src { position:sticky; top:0; background:var(--panel2); padding:5px 14px 4px;
+         color:var(--dim); letter-spacing:.2em; font-size:10px;
+         border-bottom:1px solid var(--line); z-index:1; }
+  .part { display:flex; align-items:baseline; gap:8px; width:100%; padding:5px 10px 5px 14px;
+          cursor:pointer; text-align:left; background:none; border:0;
+          border-left:2px solid transparent; color:var(--ink);
+          font-family:var(--mono); font-size:11px; }
+  .part:hover { background:var(--panel2); }
+  .part.sel { border-left-color:var(--star); background:var(--panel2); }
+  .part .rid { color:var(--faint); width:92px; flex:none; }
+  .part.sel .rid { color:var(--star); }
+  .part .dim { flex:1; color:var(--ink); }
+  .part .tri { color:var(--dim); }
+
+  #stage { flex:1; position:relative; min-width:0; }
+  #stage canvas { display:block; }
+  #info { position:absolute; right:14px; bottom:14px; width:320px;
+          border:1px solid var(--faint); background:rgba(10,14,20,.88);
+          backdrop-filter:blur(3px); user-select:none; }
+  #info .row { display:flex; border-top:1px solid var(--line); }
+  #info .row:first-child { border-top:0; }
+  #info .cell { padding:5px 8px 4px; min-width:0; }
+  #info .cell + .cell { border-left:1px solid var(--line); }
+  #info .lab { display:block; color:var(--dim); font-size:8px; letter-spacing:.18em;
+               text-transform:uppercase; margin-bottom:1px; }
+  #info .big { font-family:var(--disp); font-size:15px; font-weight:600;
+               letter-spacing:.06em; white-space:nowrap; overflow:hidden;
+               text-overflow:ellipsis; }
+  #info .grow { flex:1; }
+  #info .tex { padding:4px 8px 6px; border-top:1px solid var(--faint);
+               color:var(--dim); font-size:10px; line-height:1.5; word-break:break-all; }
+  #hint { position:absolute; left:14px; bottom:12px; color:var(--faint);
+          letter-spacing:.08em; font-size:10px; user-select:none; }
+  #note { position:absolute; left:14px; top:12px; max-width:330px; color:var(--dim);
+          font-size:10px; line-height:1.6; user-select:none; }
+  @media (max-width:820px) { #list { width:190px; } .part .dim { display:none; } #info { width:240px; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="star">★</span>
+  <h1><em>Ред Стар</em> · каталог деталей</h1>
+  <span class="sub">.compiled meshes · <span id="cnt"></span></span>
+  <span class="spacer"></span>
+  <button id="btnRot" aria-pressed="true">вращение</button>
+  <button id="btnWire" aria-pressed="false">сетка</button>
+  <a href="index.html">← реестр флота</a>
+</header>
+<main>
+  <nav id="list" aria-label="Каталог деталей"></nav>
+  <div id="stage">
+    <div id="note">Детали из FBX-исходников, извлечённые из компилированных
+      буферов движка: позиция, нормаль и UV на вершину. Почти все — плиты
+      1×1×толщина, накладываемые на грань куба. Соответствие «деталь ↔ тип
+      элемента» не восстановлено: имена узлов FBX в файлы не попали, остался
+      только хеш в имени файла.</div>
+    <div id="info"></div>
+    <div id="hint">ЛКМ — орбита · колесо — масштаб</div>
+  </div>
+</main>
+<script src="three.min.js"></script>
+<script src="parts.js"></script>
+<script>
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0A0E14);
+const camera = new THREE.PerspectiveCamera(40, 1, .01, 200);
+
+scene.add(new THREE.HemisphereLight(0x9FB6C9, 0x2A3542, .95));
+const key = new THREE.DirectionalLight(0xFFF2DC, 1.1);
+key.position.set(2.5,4,2); key.castShadow = true;
+key.shadow.mapSize.set(1024,1024); key.shadow.bias = -0.0008;
+const sc = key.shadow.camera;
+sc.left = sc.bottom = -2.2; sc.right = sc.top = 2.2; sc.near = .1; sc.far = 12;
+sc.updateProjectionMatrix();
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x4A90D9, .4);
+rim.position.set(-3,-1.5,-2.5); scene.add(rim);
+
+/* unit cell the part is authored against — shows how a plate sits on a cube face */
+const cell = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),
+  new THREE.LineBasicMaterial({color:0x2E4152}));
+cell.position.set(.5,.5,.5);
+scene.add(cell);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40,40),
+  new THREE.MeshStandardMaterial({color:0x10171F, roughness:1}));
+floor.rotation.x = -Math.PI/2; floor.position.y = -.02; floor.receiveShadow = true;
+scene.add(floor);
+
+const orbit = {th:.9, ph:1.1, r:3.2, vth:0, vph:0, auto:true};
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) orbit.auto = false;
+let drag=null;
+renderer.domElement.addEventListener('pointerdown', e=>{ drag={x:e.clientX,y:e.clientY};
+  e.target.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e=>{ if(!drag) return;
+  orbit.vth = -(e.clientX-drag.x)*.006; orbit.vph = -(e.clientY-drag.y)*.006;
+  drag.x=e.clientX; drag.y=e.clientY; });
+renderer.domElement.addEventListener('pointerup', ()=>drag=null);
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault();
+  orbit.r = Math.max(.6, Math.min(14, orbit.r*(1+Math.sign(e.deltaY)*.09))); }, {passive:false});
+
+let obj=null, wireOn=false, current=null;
+const SUBCOL = [0x7FA8C9, 0xD08A5A, 0x7CB08A, 0xB08AC0, 0xC9B45A, 0x6FBFB8, 0xC97F8A, 0x8A97C9];
+
+function show(p) {
+  current = p;
+  if (obj) { scene.remove(obj);
+    obj.traverse(o=>{ o.geometry&&o.geometry.dispose(); o.material&&o.material.dispose(); }); }
+  obj = new THREE.Group();
+  p.sub.forEach((s, si) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(s.pos,3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(s.nrm,3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(s.uv,2));
+    g.setIndex(s.idx);
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+      color:SUBCOL[si % SUBCOL.length], side:THREE.DoubleSide,
+      roughness:.72, metalness:.12, flatShading:false,
+      wireframe:wireOn}));
+    m.castShadow = m.receiveShadow = true;
+    obj.add(m);
+  });
+  scene.add(obj);
+  const r = Math.max(...p.size, .4);
+  orbit.r = r*3.1;
+  key.target.position.set(.5, .5, .5); scene.add(key.target);
+  info(p);
+  document.querySelectorAll('.part').forEach(b =>
+    b.classList.toggle('sel', b.dataset.name === p.name));
+}
+
+function info(p) {
+  const tex = p.tex.length ? p.tex.join('<br>') : '—';
+  document.getElementById('info').innerHTML =
+   `<div class="row"><div class="cell grow"><span class="lab">исходник</span>
+      <div class="big">${p.src}</div></div>
+     <div class="cell"><span class="lab">id ресурса</span>${p.rid}</div></div>
+    <div class="row"><div class="cell grow"><span class="lab">габариты</span>
+      ${p.size.map(v=>v.toFixed(2)).join(' × ')}</div>
+     <div class="cell grow"><span class="lab">геометрия</span>
+      ${p.verts} вершин · ${p.tris} треуг.</div>
+     <div class="cell"><span class="lab">частей</span>${p.sub.length}</div></div>
+    <div class="tex">${tex}</div>`;
+}
+
+/* registry */
+const list = document.getElementById('list');
+const bySrc = {};
+PARTS.forEach(p => (bySrc[p.src] ||= []).push(p));
+for (const src of Object.keys(bySrc).sort()) {
+  const h = document.createElement('div'); h.className='src';
+  h.textContent = `${src} · ${bySrc[src].length}`;
+  list.appendChild(h);
+  bySrc[src].forEach(p => {
+    const b = document.createElement('button'); b.className='part'; b.dataset.name=p.name;
+    b.innerHTML = `<span class="rid">${p.rid}</span>` +
+      `<span class="dim">${p.size.map(v=>v.toFixed(2)).join('×')}</span>` +
+      `<span class="tri">${p.tris}t</span>`;
+    b.onclick = () => show(p);
+    list.appendChild(b);
+  });
+}
+document.getElementById('cnt').textContent =
+  `${PARTS.length} деталей · ${PARTS.reduce((a,p)=>a+p.tris,0)} треугольников`;
+
+const btn = (id, fn) => { const b=document.getElementById(id);
+  b.onclick=()=>{ const on=b.getAttribute('aria-pressed')!=='true';
+    b.setAttribute('aria-pressed', on); fn(on); }; };
+btn('btnRot', on => orbit.auto = on);
+btn('btnWire', on => { wireOn=on; if (current) show(current); });
+
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+(function tick(){
+  requestAnimationFrame(tick);
+  if (orbit.auto && !drag) orbit.th += .0035;
+  orbit.th += orbit.vth; orbit.ph += orbit.vph;
+  orbit.vth*=.88; orbit.vph*=.88;
+  orbit.ph = Math.max(.1, Math.min(Math.PI-.1, orbit.ph));
+  camera.position.set(.5 + orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),
+                      .5 + orbit.r*Math.cos(orbit.ph),
+                      .5 + orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th));
+  camera.lookAt(.5,.5,.5);
+  renderer.render(scene, camera);
+})();
+
+show(PARTS.find(p => p.tris > 200) || PARTS[0]);
+</script>
+</body>
+</html>
