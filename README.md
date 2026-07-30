@@ -3,7 +3,10 @@
 Reverse-engineering of `.rsconstruction`, the ship-design format of **RedStarEditor**
 (2014, in-house "SharedTec" engine), and a browser viewer for the recovered fleet.
 
-**Live viewer: https://rs.ioupg.com**
+**Live viewer: https://rs.ioupg.com** · mesh catalogue: https://rs.ioupg.com/parts
+
+**Picking this up again? Read [`notes/05-status.md`](notes/05-status.md)** — what is
+solved, what is provably blocked, and where work stopped.
 
 Ships are voxel constructions: a grid of `CarcassCube` hull blocks, each with a shape
 (cube / corner-cut / wedge / tetra), an orientation from the 24-element rotation group
@@ -16,8 +19,9 @@ wing/module elements.
 |---|---|
 | `*.rsconstruction` | original 2014 ship files (43 designs + `temp`) |
 | `ship-roster.csv` | design-stats table that came with the backup, used to validate the decode |
-| `parse_rsconstruction.py` | parser → JSON + viewer data |
-| `recovered/*.json` | decoded ships |
+| `parse_rsconstruction.py` | ship parser → JSON + viewer data |
+| `decode_meshes.py` | part-mesh decoder → catalogue, hull shapes, plates, module cages |
+| `recovered/*.json` | decoded ships and meshes |
 | `viewer/` | offline three.js viewer (self-contained; also what's deployed) |
 | `notes/` | working notes: inventory, format spec, results, screenshots |
 | `compiled/` | engine asset cache from the backup (textures, shaders, part meshes) |
@@ -29,7 +33,8 @@ learned from it lives in `notes/02-format-final.md` and `notes/03-results.md`.
 ## Rebuild and deploy
 
 ```sh
-python parse_rsconstruction.py   # re-parses every ship, regenerates viewer/ships.js
+python parse_rsconstruction.py   # ships  -> recovered/*.json + viewer/ships.js
+python decode_meshes.py          # meshes -> recovered/parts.json, viewer/parts.js, viewer/shapes.js
 wrangler deploy                  # publishes viewer/ to rs.ioupg.com
 ```
 
