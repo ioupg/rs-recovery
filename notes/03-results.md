@@ -8,6 +8,15 @@
   Open directly (file://) or serve the `viewer/` dir with any static server.
   Self-contained: `three.min.js` (r128) + `ships.js` (generated data) are local.
 
+## Version control
+
+Repo initialised late (2026-07-30), so the recovery itself isn't in the history —
+the first commits import the 2014 material and then land the finished format spec,
+parser, and viewer. Everything after that is committed as it changes.
+The 33 MB debug exe is gitignored; `.gitattributes` marks all data files `binary`
+so line-ending conversion can never corrupt them (verified: all 44 ship files
+round-trip byte-identical out of git).
+
 ## Deployment
 
 Live at **https://rs.ioupg.com** — Cloudflare Worker with static assets
