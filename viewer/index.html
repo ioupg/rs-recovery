@@ -167,6 +167,11 @@ const WING_COLOR = 0x51636F;
    window is measured from the mesh at decode time. The margin just keeps the
    plate edge off the rim so the two never fight for the same pixels. */
 const PLATE_MARGIN = .985;
+/* Plates are authored with their face at z=0 and mounting struts hanging to
+   -depth. Mounted dead flush the face is coplanar with the shell rim and reads
+   as sunken into the window; a small stand-off sets it just proud of the frame
+   while the struts stay hidden inside. */
+const PLATE_LIFT = .02;
 /* The hull shapes are shells, so without a backing you see straight through the
    window of any face whose plate does not cover it. The filler is the plain
    culled hull pushed a little way inside, which blocks the view without ever
@@ -916,7 +921,7 @@ function buildShip(name, keepView) {
         for (const s of pm.sub) for (const i of s.idx) {
           const lx = oc[0] + (s.pos[i*3]  -oc[0])*k - a0[0],
                 ly = oc[1] + (s.pos[i*3+1]-oc[1])*k - a0[1],
-                lz = s.pos[i*3+2];
+                lz = s.pos[i*3+2] + PLATE_LIFT;
           const t1 = ( lx*d2[1] - ly*d2[0]) / det;
           const t2 = (-lx*d1[1] + ly*d1[0]) / det;
           const w = [v0[0]+t1*E1[0]+t2*E2[0]+lz*n[0],
