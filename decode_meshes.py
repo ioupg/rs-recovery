@@ -130,6 +130,23 @@ def corner_set(part, tol=.16):
     return got
 
 
+def face_window(part, tol=1e-3):
+    """How much of a cell face the shape leaves open for its plate.
+
+    These hull shapes are shells: each face is a thin rim around an empty window
+    and the plate drops into that window. Measuring it rather than hard-coding it
+    keeps the plate fitted if a different representative is ever chosen.
+    """
+    xs = set()
+    for s in part['sub']:
+        q = s['pos']
+        for i in range(0, len(q), 3):
+            if abs(q[i+2] - 1.0) < tol:
+                xs.add(round(q[i], 3))
+    inner = [v for v in sorted(xs) if 0.02 < v < 0.98]
+    return round(1 - 2*min(inner), 3) if inner else 1.0
+
+
 def pick_shape_meshes(parts):
     """Match each cube shape to the part whose corners reproduce its table exactly.
 
@@ -147,12 +164,66 @@ def pick_shape_meshes(parts):
                 cands.append(p)
         if not cands:
             continue
-        target = 130
-        best = min(cands, key=lambda p: (abs(p['tris']-target), -p['tris']))
+        # the hull shapes are a matched set: same source, same 0.05 rim, same
+        # texture. Prefer that family over an unrelated cage of similar poly count.
+        best = min(cands, key=lambda p: (0 if 'craftHull.bmp' in p['tex'] else 1,
+                                         abs(p['tris']-130), -p['tris']))
+        best['window'] = face_window(best)
         out[shape] = best
         print(f"  shape {shape} {SHAPE_CODE[shape]}: {len(cands)} exact match(es), "
-              f"using {best['rid']} ({best['tris']} tris, {','.join(best['tex']) or 'no tex'})")
+              f"using {best['rid']} ({best['tris']} tris, window {best['window']}, "
+              f"{','.join(best['tex']) or 'no tex'})")
     return out
+
+
+def decode_variant(path):
+    """Later export format: index block first, then a 40-byte vertex
+    (pos3, normal3, uv2, pad2) whose normals were never written — they come back
+    as 0xCDCDCD debug fill, so they get recomputed from the triangles."""
+    d = open(path, 'rb').read()
+    pos, subs = 4, []
+    while pos < len(d) - 8:
+        ic = struct.unpack_from('<I', d, pos)[0]
+        if not (3 <= ic <= 200000 and ic % 3 == 0 and pos + 4 + ic*4 <= len(d)):
+            pos += 1
+            continue
+        idx = struct.unpack_from(f'<{ic}I', d, pos + 4)
+        iend = pos + 4 + ic*4
+        if iend + 8 > len(d):
+            break
+        vc = struct.unpack_from('<I', d, iend + 4)[0]
+        vend = iend + 8 + vc*40
+        if not (3 <= vc <= 200000 and vend <= len(d)) or max(idx) >= vc:
+            pos += 1
+            continue
+        vs = iend + 8
+        P, UV = [], []
+        for i in range(vc):
+            f = struct.unpack_from('<8f', d, vs + i*40)
+            P.append(f[0:3])
+            UV.append(f[6:8])
+        # normals from face winding, averaged per vertex
+        N = [[0.0, 0.0, 0.0] for _ in range(vc)]
+        for t in range(0, ic, 3):
+            a, b, c = idx[t], idx[t+1], idx[t+2]
+            u = [P[b][k]-P[a][k] for k in range(3)]
+            v = [P[c][k]-P[a][k] for k in range(3)]
+            n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]]
+            for j in (a, b, c):
+                for k in range(3):
+                    N[j][k] += n[k]
+        flat_p, flat_n, flat_uv = [], [], []
+        for i in range(vc):
+            m = math.sqrt(sum(c*c for c in N[i])) or 1.0
+            flat_p += [round(c, 5) for c in P[i]]
+            flat_n += [round(c/m, 4) for c in N[i]]
+            flat_uv += [round(c, 4) for c in UV[i]]
+        subs.append({'tex': sorted({t.rsplit('/', 1)[-1]
+                                    for t in _strings(d, 4, pos)}),
+                     'pos': flat_p, 'nrm': flat_n, 'uv': flat_uv, 'idx': list(idx)})
+        pos = vend
+    return {'file': os.path.basename(path), 'declared': struct.unpack_from('<I', d, 0)[0],
+            'size': len(d), 'consumed': pos, 'sub': subs, 'normals': 'computed'}
 
 
 def _hull2d(pts):
@@ -220,6 +291,8 @@ def main():
     for p in files:
         m = decode(p)
         if not m['sub']:
+            m = decode_variant(p)          # later export: 40-byte vertex, no normals
+        if not m['sub']:
             skipped.append((os.path.basename(p), m['size']))
             continue
         lo, hi = bbox(m)
@@ -234,9 +307,10 @@ def main():
                       'tex': sorted({t for s in m['sub'] for t in s['tex']}),
                       'sub': m['sub'],
                       'tail': m['size'] - m['consumed']})
-        assert m['declared'] == len(m['sub']), \
-            f"{name}: header says {m['declared']} submeshes, found {len(m['sub'])}"
-        assert m['size'] - m['consumed'] == 4, f"{name}: unexpected tail"
+        if m.get('normals') != 'computed':
+            assert m['declared'] == len(m['sub']), \
+                f"{name}: header says {m['declared']} submeshes, found {len(m['sub'])}"
+            assert m['size'] - m['consumed'] == 4, f"{name}: unexpected tail"
 
     parts.sort(key=lambda p: (p['src'], -p['verts']))
     tv = sum(p['verts'] for p in parts)
@@ -260,7 +334,7 @@ def main():
     print("matching cube shapes to part meshes by corner set:")
     shapes = pick_shape_meshes(parts)
     slim = {str(k): {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
-                     'code': SHAPE_CODE[k],
+                     'code': SHAPE_CODE[k], 'window': p.get('window', 1.0),
                      'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
                              for s in p['sub']]}
             for k, p in shapes.items()}

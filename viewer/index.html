@@ -162,8 +162,10 @@ const COMP = {
 };
 const HULL_ID = 8;
 const WING_COLOR = 0x51636F;
-/* plates are shrunk slightly so the girder frame stays visible under them */
-const PLATE_SCALE = .84;
+/* plates drop into the open window each hull shell leaves on its face; the
+   window is measured from the mesh at decode time. The margin just keeps the
+   plate edge off the rim so the two never fight for the same pixels. */
+const PLATE_MARGIN = .985;
 
 /* faces per shape as corner-index loops (validated vs exe plate tables) */
 const FACES = {
@@ -727,7 +729,7 @@ function buildShip(name, keepView) {
         const p = rot(cb.o, corner(ci));
         return [p[0]+cb.x, p[1]+cb.y, p[2]+cb.z];
       });
-      faces.push({verts, comp: cb.comp});
+      faces.push({verts, comp: cb.comp, shape: cb.shape});
     }
   }
   /* cull coincident faces + tris hidden under quads */
@@ -802,14 +804,16 @@ function buildShip(name, keepView) {
            face and hides the frame it is supposed to be bolted onto */
         const oc = pm.outline.reduce((s,p)=>[s[0]+p[0], s[1]+p[1]],[0,0])
                              .map(v=>v/pm.outline.length);
+        const sm2 = SHAPE_MESH[f.shape];
+        const k = ((sm2 && sm2.window) || 1) * PLATE_MARGIN;
         const d1=[a1[0]-a0[0], a1[1]-a0[1]], d2=[a2[0]-a0[0], a2[1]-a0[1]];
         const det = d1[0]*d2[1] - d1[1]*d2[0];
         if (!det) continue;
         const c = compColorOn ? new THREE.Color(COMP[f.comp].c)
                               : new THREE.Color(COMP[HULL_ID].c);
         for (const s of pm.sub) for (const i of s.idx) {
-          const lx = oc[0] + (s.pos[i*3]  -oc[0])*PLATE_SCALE - a0[0],
-                ly = oc[1] + (s.pos[i*3+1]-oc[1])*PLATE_SCALE - a0[1],
+          const lx = oc[0] + (s.pos[i*3]  -oc[0])*k - a0[0],
+                ly = oc[1] + (s.pos[i*3+1]-oc[1])*k - a0[1],
                 lz = s.pos[i*3+2];
           const t1 = ( lx*d2[1] - ly*d2[0]) / det;
           const t2 = (-lx*d1[1] + ly*d1[0]) / det;
