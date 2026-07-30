@@ -78,3 +78,38 @@ representative mesh is chosen per system from the six free-form meshes.
 Placement is fully recovered; **variant selection is not**. Any render using these
 meshes is "a plausible dressing of exact structure", and should be labelled that way
 in the UI rather than presented as the original appearance.
+
+## Update: the plate identity is not recoverable (settled)
+
+Two independent attempts, both negative.
+
+**1. Is the plate variant stored per face in the ship files?** No. Each cube record
+has seven plate slots at `40 + 16i`, each holding a byte. Testing shape-0 cubes,
+that byte is almost entirely determined by `(cube orientation, slot index)` — only
+9 of 36 observed pairs vary, and the variation is the presence/absence of a plate
+(value 0 dominates the slots that face inward). So the byte is a **plate
+orientation**, not a style id. The files record *where* a plate goes, never *which*.
+
+**2. Is the compiled filename a hash of the part name?** No. With the real
+vocabulary now in hand (`k8`, `p1111`, `w1111`, `m1*engine`, …) plus the `=default`
+syntax found next to `RedStar/parts/_defaults.fbx`, a second sweep tried 13 959
+constructed name forms × 8 hash functions × 2 encodings × with/without terminator
+— roughly 447 000 combinations — against all 75 ids. Zero hits. The id is assigned
+by the offline asset compiler, which is not in this executable.
+
+### What this means in practice
+
+Plate **type** per face is fully recovered and needs no guessing: the exe's
+`plateType(shape, plateIndex)` table gives p1111 / p121 / p2121 / p222A / p222V,
+and those correspond exactly to the facet shapes the viewer already culls — square
+facets take the square plate, triangular facets the triangular one, and the affine
+mapping fits the slanted and equilateral cases automatically.
+
+Plate **mesh** is a choice, not a recovery. `_defaults.fbx` holds eleven thin square
+candidates (12 → 3422 triangles) with assorted decorative textures; nothing in the
+data distinguishes them. The viewer therefore exposes them as a picker rather than
+pretending one is correct.
+
+Remaining idea, not yet done: assign *different* meshes to p2121 and p222A/V so
+wedge slopes and cut corners differ from flat faces. That uses the recovered type
+table for real variety, though the per-type mesh choice stays a choice.
