@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>РЕД СТАР — Recovered Fleet Registry</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext x='0' y='13' font-size='13' fill='%23D64545'%3E★%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --void:   #0A0E14;
+    --panel:  #0F151E;
+    --panel2: #131B26;
+    --line:   #22303E;
+    --ink:    #C8D6E0;
+    --dim:    #5C7080;
+    --faint:  #3A4A58;
+    --star:   #D64545;   /* Red Star */
+    --brass:  #C9A227;
+    --focus:  #4A90D9;
+    --mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+    --disp: Bahnschrift, "Arial Narrow", "Segoe UI", sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; overflow:hidden; }
+  body {
+    background:var(--void); color:var(--ink);
+    font-family:var(--mono); font-size:12px;
+    display:flex; flex-direction:column;
+  }
+
+  /* ── header ─────────────────────────────────────────── */
+  header {
+    display:flex; align-items:baseline; gap:14px;
+    padding:10px 16px 8px; border-bottom:1px solid var(--line);
+    flex:none; user-select:none;
+  }
+  header .star { color:var(--star); font-size:15px; }
+  header h1 {
+    font-family:var(--disp); font-weight:600; font-size:16px;
+    letter-spacing:.22em; text-transform:uppercase;
+  }
+  header h1 em { font-style:normal; color:var(--star); }
+  header .sub { color:var(--dim); letter-spacing:.06em; }
+  header .spacer { flex:1; }
+  header button {
+    background:none; border:1px solid var(--line); color:var(--dim);
+    font-family:var(--mono); font-size:11px; padding:4px 10px;
+    cursor:pointer; letter-spacing:.08em;
+  }
+  header button:hover { color:var(--ink); border-color:var(--faint); }
+  header button[aria-pressed="true"] { color:var(--brass); border-color:var(--brass); }
+  header button:focus-visible, .ship:focus-visible { outline:1px solid var(--focus); outline-offset:2px; }
+
+  /* ── main split ─────────────────────────────────────── */
+  main { flex:1; display:flex; min-height:0; }
+
+  /* registry rail */
+  #registry {
+    width:238px; flex:none; overflow-y:auto;
+    border-right:1px solid var(--line); background:var(--panel);
+    scrollbar-width:thin; scrollbar-color:var(--faint) transparent;
+  }
+  .rank {
+    position:sticky; top:0; background:var(--panel2);
+    padding:5px 14px 4px; color:var(--dim);
+    letter-spacing:.25em; font-size:10px;
+    border-bottom:1px solid var(--line); z-index:1;
+  }
+  .ship {
+    display:flex; align-items:baseline; gap:8px; width:100%;
+    padding:6px 10px 6px 14px; cursor:pointer; text-align:left;
+    background:none; border:0; border-left:2px solid transparent;
+    color:var(--ink); font-family:var(--mono); font-size:12px;
+  }
+  .ship:hover { background:var(--panel2); }
+  .ship.sel { border-left-color:var(--star); background:var(--panel2); }
+  .ship .hull { color:var(--dim); font-size:10px; width:34px; flex:none; }
+  .ship.sel .hull { color:var(--star); }
+  .ship .nm { flex:1; letter-spacing:.03em; }
+  .ship .cls { color:var(--faint); font-size:10px; }
+
+  /* viewport */
+  #stage { flex:1; position:relative; min-width:0; }
+  #stage canvas { display:block; }
+
+  /* ── title block (ГОСТ-style stamp) ─────────────────── */
+  #stamp {
+    position:absolute; right:14px; bottom:14px; width:302px;
+    border:1px solid var(--faint); background:rgba(10,14,20,.88);
+    backdrop-filter:blur(3px); user-select:none;
+  }
+  #stamp .row { display:flex; border-top:1px solid var(--line); }
+  #stamp .row:first-child { border-top:0; }
+  #stamp .cell { padding:5px 8px 4px; min-width:0; }
+  #stamp .cell + .cell { border-left:1px solid var(--line); }
+  #stamp .lab { display:block; color:var(--dim); font-size:8px; letter-spacing:.18em; text-transform:uppercase; margin-bottom:1px; }
+  #stamp .big {
+    font-family:var(--disp); font-size:19px; font-weight:600;
+    letter-spacing:.1em; text-transform:uppercase; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  #stamp .num { font-size:13px; color:var(--brass); }
+  #stamp .grow { flex:1; }
+  /* compartment ledger */
+  #comp { border-top:1px solid var(--faint); }
+  .crow { display:flex; align-items:center; gap:7px; padding:2px 8px; }
+  .crow:first-child { padding-top:5px; } .crow:last-child { padding-bottom:6px; }
+  .sw { width:8px; height:8px; flex:none; border:1px solid rgba(255,255,255,.25); }
+  .crow .cn { width:110px; color:var(--ink); flex:none; }
+  .crow .bar { flex:1; height:5px; background:var(--panel2); position:relative; }
+  .crow .bar i { position:absolute; inset:0 auto 0 0; display:block; }
+  .crow .ct { width:24px; text-align:right; color:var(--dim); }
+
+  #hint { position:absolute; left:14px; bottom:12px; color:var(--faint); letter-spacing:.08em; font-size:10px; user-select:none; }
+
+  @media (max-width:760px) {
+    #registry { width:160px; } .ship .cls { display:none; } #stamp { width:250px; }
+  }
+  @media (prefers-reduced-motion: reduce) { /* JS reads this to disable autorotate */ }
+</style>
+</head>
+<body>
+<header>
+  <span class="star">★</span>
+  <h1><em>Ред Стар</em> · реестр флота</h1>
+  <span class="sub">.rsconstruction recovery · 2014 → 2026</span>
+  <span class="spacer"></span>
+  <button id="btnRot" aria-pressed="true">вращение</button>
+  <button id="btnEdge" aria-pressed="true">кромки</button>
+  <button id="btnComp" aria-pressed="true">отсеки</button>
+  <button id="btnTex" aria-pressed="true">текстуры</button>
+  <button id="btnCham" aria-pressed="true">фаски</button>
+</header>
+<main>
+  <nav id="registry" aria-label="Реестр кораблей"></nav>
+  <div id="stage">
+    <div id="stamp"></div>
+    <div id="hint">ЛКМ — орбита · колесо — масштаб · ПКМ — сдвиг</div>
+  </div>
+</main>
+<script src="three.min.js"></script>
+<script src="ships.js"></script>
+<script>
+/* ════════ data semantics ════════ */
+const COMP = {
+  0:{n:'энергия',    c:0xE8C34A},
+  1:{n:'ЦП',         c:0x8B7BD8},
+  2:{n:'обитаемый',  c:0x6BA368},
+  3:{n:'гироскоп',   c:0x3FA7A3},
+  4:{n:'баки',       c:0x4A90D9},
+  5:{n:'орудия',     c:0xD64545},
+  6:{n:'двигатели',  c:0xD65A31},
+  7:{n:'ангар',      c:0xC77B9E},
+  8:{n:'корпус',     c:0x46586B},
+  9:{n:'мостик',     c:0xE5E9ED},
+};
+const HULL_ID = 8;
+const KIND = {0:'узел', 1:'крыло', 2:'модуль-2', 3:'модуль-3'};
+const ELEM_COLOR = 0x7BC4D4;
+
+/* faces per shape as corner-index loops (validated vs exe plate tables) */
+const FACES = {
+  0: [[0,1,5,4],[2,6,7,3],[0,4,6,2],[1,3,7,5],[0,2,3,1],[4,5,7,6]],
+  1: [[0,1,5,4],[1,3,7,5],[4,5,7,6],[0,4,6],[6,7,3],[0,3,1],[0,6,3]],
+  2: [[0,1,5,4],[4,5,7,6],[0,1,7,6],[0,6,4],[1,5,7]],
+  3: [[1,4,5],[1,5,7],[4,5,7],[1,4,7]],
+};
+const corner = i => [i&1, (i>>1)&1, (i>>2)&1];
+
+/* ── chamfer: inset every exterior facet, then close the gaps with bevel strips
+      along shared edges and fan patches at corners. Interior edges never appear
+      here because coincident facets were already culled. ── */
+const V3 = {
+  sub: (a,b)=>[a[0]-b[0], a[1]-b[1], a[2]-b[2]],
+  add: (a,b)=>[a[0]+b[0], a[1]+b[1], a[2]+b[2]],
+  mul: (a,s)=>[a[0]*s, a[1]*s, a[2]*s],
+  cross: (a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+  dot: (a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  len: a=>Math.hypot(a[0],a[1],a[2]),
+};
+const vkey = v => v.map(x=>Math.round(x*1000)).join(',');
+
+function chamferFaces(kept, b) {
+  const {sub, add, mul, cross, dot, len} = V3;
+  /* 1 — inset each facet within its own plane */
+  const F = kept.map(f => {
+    const n = f.verts.length;
+    const c = mul(f.verts.reduce((s,v)=>add(s,v), [0,0,0]), 1/n);
+    let dmin = Infinity;
+    for (let i=0; i<n; i++) {
+      const a = f.verts[i], e = sub(f.verts[(i+1)%n], a);
+      dmin = Math.min(dmin, len(cross(e, sub(c,a))) / (len(e)||1));
+    }
+    const t = Math.min(b/dmin, .4);
+    return {verts:f.verts, comp:f.comp, k:f.k, iv:f.verts.map(v=>add(v, mul(sub(c,v), t)))};
+  });
+
+  /* 2 — index edges and vertex incidences */
+  const E = new Map(), VI = new Map();
+  F.forEach((f, fi) => {
+    const n = f.verts.length;
+    for (let i=0; i<n; i++) {
+      const j = (i+1)%n;
+      const ek = [vkey(f.verts[i]), vkey(f.verts[j])].sort().join('|');
+      (E.get(ek) || E.set(ek, []).get(ek)).push({fi, i, j});
+      (VI.get(vkey(f.verts[i])) || VI.set(vkey(f.verts[i]), []).get(vkey(f.verts[i])))
+        .push({fi, li:i});
+    }
+  });
+
+  const out = F.map(f => ({verts:f.iv, comp:f.comp, k:f.k}));
+
+  /* 3 — bevel strip per manifold edge; elsewhere (open or non-manifold edges,
+        where a wedge slope abuts a cube plate) drop a flap back to the original
+        edge so the inset never tears a hole in the hull */
+  for (const [, uses] of E) {
+    if (uses.length === 2) {
+      const [A, B] = uses, fa = F[A.fi], fb = F[B.fi];
+      const at = k => fb.verts.findIndex(v => vkey(v) === k);
+      const bi = at(vkey(fa.verts[A.i])), bj = at(vkey(fa.verts[A.j]));
+      if (bi >= 0 && bj >= 0) {
+        out.push({verts:[fa.iv[A.i], fa.iv[A.j], fb.iv[bj], fb.iv[bi]],
+                  comp:fa.comp, k:'b'+fa.k+A.i, plain:true});
+        continue;
+      }
+    }
+    for (const U of uses) {
+      const f = F[U.fi];
+      out.push({verts:[f.iv[U.i], f.iv[U.j], f.verts[U.j], f.verts[U.i]],
+                comp:f.comp, k:'f'+f.k+U.i, plain:true});
+    }
+  }
+
+  /* 4 — corner patch per vertex: walk the facet ring through shared edges */
+  for (const [vkStr, inc] of VI) {
+    if (inc.length < 3) continue;
+    const seen = new Set();
+    const step = (fi, li, dir) => {            // → neighbouring facet across one edge at V
+      const f = F[fi], n = f.verts.length;
+      const o = dir > 0 ? (li+1)%n : (li-1+n)%n;
+      const ek = [vkey(f.verts[li]), vkey(f.verts[o])].sort().join('|');
+      const uses = E.get(ek);
+      if (!uses || uses.length !== 2) return null;
+      const nfi = uses[0].fi === fi ? uses[1].fi : uses[0].fi;
+      const nli = F[nfi].verts.findIndex(v => vkey(v) === vkStr);
+      return nli < 0 ? null : {fi:nfi, li:nli};
+    };
+    for (const start of inc) {
+      if (seen.has(start.fi)) continue;
+      let ring = [start], cur = start, closed = false;
+      for (let guard=0; guard<12; guard++) {          // forward
+        const nx = step(cur.fi, cur.li, +1);
+        if (!nx) break;
+        if (nx.fi === start.fi) { closed = true; break; }
+        if (ring.some(r=>r.fi===nx.fi)) break;
+        ring.push(nx); cur = nx;
+      }
+      if (!closed) {                                   // open fan → extend backwards
+        cur = start;
+        for (let guard=0; guard<12; guard++) {
+          const pv = step(cur.fi, cur.li, -1);
+          if (!pv || ring.some(r=>r.fi===pv.fi)) break;
+          ring.unshift(pv); cur = pv;
+        }
+      }
+      ring.forEach(r=>seen.add(r.fi));
+      if (ring.length < 3) continue;
+      out.push({verts: ring.map(r => F[r.fi].iv[r.li]),
+                comp: F[ring[0].fi].comp, k:'c'+vkStr, plain:true});
+    }
+  }
+  return out;
+}
+function rot(o, v) {           // R·(v−½)+½  — world-integer result
+  const m = ORIENTATIONS[o];
+  const x=v[0]-.5, y=v[1]-.5, z=v[2]-.5;
+  return [ m[0]*x+m[1]*y+m[2]*z+.5, m[3]*x+m[4]*y+m[5]*z+.5, m[6]*x+m[7]*y+m[8]*z+.5 ];
+}
+
+/* ════════ compartment texture atlas ════════
+   Abstract surface treatments, not pictograms: each compartment gets a plating
+   character (seam rhythm, striation direction, grain) that reads as material at
+   ship scale. Grayscale multiplies the compartment tint, so contrast stays low. */
+const ATLAS_N = 1024, CELL = 256, COLS = 4, PAD = 16;
+function makeAtlas() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = ATLAS_N;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#DEDEDE'; g.fillRect(0,0,ATLAS_N,ATLAS_N);
+  /* deterministic PRNG so the atlas is identical every load */
+  let seed = 0x2F6E2B1;
+  const rnd = () => ((seed = (seed*1103515245 + 12345) & 0x7FFFFFFF) / 0x7FFFFFFF);
+  const cell = (i, draw) => {
+    const x = (i%COLS)*CELL, y = Math.floor(i/COLS)*CELL;
+    g.save(); g.translate(x,y); g.beginPath(); g.rect(0,0,CELL,CELL); g.clip();
+    draw(g); g.restore();
+  };
+  const shade = v => `rgb(${v},${v},${v})`;
+  /* fine speckle grain — the base "material" everything sits on */
+  const grain = (g, n, amp) => {
+    for (let i=0; i<n; i++) {
+      const v = 222 + (rnd()-.5)*amp*2;
+      g.fillStyle = shade(Math.round(v));
+      g.fillRect(rnd()*CELL, rnd()*CELL, 1+rnd()*3, 1+rnd()*3);
+    }
+  };
+  /* parallel striations at an angle: rhythm carries the compartment's character */
+  const striate = (g, ang, gap, w, lo, hi, jitter=0) => {
+    g.save(); g.translate(CELL/2,CELL/2); g.rotate(ang); g.translate(-CELL,-CELL);
+    for (let x=0; x<CELL*2; x+=gap) {
+      g.fillStyle = shade(Math.round(lo + rnd()*(hi-lo)));
+      g.fillRect(x + (jitter?(rnd()-.5)*jitter:0), 0, w, CELL*2);
+    }
+    g.restore();
+  };
+  /* irregular plate seams: splits the face into a few unequal panels */
+  const seams = (g, cuts, v) => {
+    g.strokeStyle = shade(v); g.lineWidth = 2;
+    for (const [a,b,c,d] of cuts) { g.beginPath(); g.moveTo(a,b); g.lineTo(c,d); g.stroke(); }
+  };
+  const plates = (g, n, lo, hi) => {         // soft tonal patches (worn plating)
+    for (let i=0; i<n; i++) {
+      g.fillStyle = shade(Math.round(lo + rnd()*(hi-lo)));
+      const w = 40+rnd()*90, h = 40+rnd()*90;
+      g.fillRect(rnd()*(CELL-w), rnd()*(CELL-h), w, h);
+    }
+  };
+  const specks = (g, n, v, r) => {           // sparse micro-detail
+    g.fillStyle = shade(v);
+    for (let i=0; i<n; i++) { g.beginPath(); g.arc(rnd()*CELL, rnd()*CELL, r, 0, 7); g.fill(); }
+  };
+
+  /* 0 энергия — dense fine ribbing, warm even surface */
+  cell(0, g => { plates(g,3,214,228); striate(g,0,7,3,196,212); grain(g,900,10);
+    seams(g,[[0,84,256,84],[0,178,256,178]],204); });
+  /* 1 ЦП — orthogonal fine grid, tight and regular */
+  cell(1, g => { plates(g,2,216,230); striate(g,0,16,2,200,214); striate(g,Math.PI/2,16,2,204,216);
+    grain(g,700,8); specks(g,26,196,1.6); });
+  /* 2 обитаемый — broad calm panels, minimal texture */
+  cell(2, g => { plates(g,5,214,232); grain(g,500,7);
+    seams(g,[[0,96,256,88],[128,0,132,256],[132,168,256,172]],206); });
+  /* 3 гироскоп — diagonal cross-hatch, machined feel */
+  cell(3, g => { plates(g,2,216,228); striate(g,Math.PI/4,14,3,198,212);
+    striate(g,-Math.PI/4,14,2,206,218); grain(g,600,8); });
+  /* 4 баки — wide smooth bands, pressure-vessel curvature */
+  cell(4, g => { plates(g,2,218,230); striate(g,Math.PI/2,42,10,204,216);
+    grain(g,400,6); seams(g,[[0,40,256,44],[0,212,256,208]],202); specks(g,14,198,2); });
+  /* 5 орудия — heavy irregular armour slabs */
+  cell(5, g => { plates(g,7,204,228); grain(g,1100,13);
+    seams(g,[[0,72,256,60],[96,0,108,256],[108,150,256,164],[0,190,96,196]],196);
+    specks(g,20,192,2.2); });
+  /* 6 двигатели — coarse vertical venting, high contrast */
+  cell(6, g => { plates(g,2,212,226); striate(g,0,13,6,188,206,2); grain(g,900,12);
+    seams(g,[[0,30,256,30],[0,226,256,226]],198); });
+  /* 7 ангар — large open bay panels with a scored floor rhythm */
+  cell(7, g => { plates(g,3,216,232); striate(g,Math.PI/2,30,3,202,214); grain(g,500,7);
+    seams(g,[[0,124,256,124],[64,0,64,256],[192,0,192,256]],204); });
+  /* 8 корпус — structural plating: seams, rivet lines, subtle wear */
+  cell(8, g => { plates(g,6,212,230); grain(g,800,10);
+    seams(g,[[0,88,256,80],[120,0,126,256],[126,176,256,182],[0,200,120,206]],200);
+    g.fillStyle=shade(198);
+    for (let x=14; x<250; x+=26) { g.beginPath(); g.arc(x,84,2,0,7); g.fill(); }
+    for (let y=14; y<250; y+=26) { g.beginPath(); g.arc(123,y,2,0,7); g.fill(); } });
+  /* 9 мостик — polished, almost bare with one hairline band */
+  cell(9, g => { plates(g,2,226,238); grain(g,300,5);
+    striate(g,0,64,2,214,224); seams(g,[[0,120,256,116]],212); });
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.anisotropy = 8;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  return tex;
+}
+const ATLAS = makeAtlas();
+function atlasUV(comp, u, v) {           // face-local [0,1] -> atlas coords
+  const cx = (comp%COLS)*CELL, cy = Math.floor(comp/COLS)*CELL;
+  return [ (cx + PAD + u*(CELL-2*PAD)) / ATLAS_N,
+           1 - (cy + PAD + v*(CELL-2*PAD)) / ATLAS_N ];
+}
+/* untouched atlas region — chamfer strips sample a flat tone, no pattern stretch */
+const BLANK_UV = [(3.5*CELL)/ATLAS_N, 1-(3.5*CELL)/ATLAS_N];
+
+/* ════════ three.js scene ════════ */
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0A0E14);
+scene.fog = new THREE.Fog(0x0A0E14, 60, 140);
+const camera = new THREE.PerspectiveCamera(40, 1, .1, 500);
+
+scene.add(new THREE.HemisphereLight(0x9FB6C9, 0x2A3542, .9));
+const key = new THREE.DirectionalLight(0xFFF2DC, 1.15);
+key.position.set(6,10,4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.02;
+key.shadow.radius = 4;
+scene.add(key); scene.add(key.target);
+const rim = new THREE.DirectionalLight(0x4A90D9, .45);
+rim.position.set(-8,-4,-6); scene.add(rim);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(240,240),
+  new THREE.MeshStandardMaterial({color:0x10171F, roughness:1, metalness:0}));
+floor.rotation.x = -Math.PI/2;
+floor.receiveShadow = true;
+scene.add(floor);
+const grid = new THREE.GridHelper(40, 40, 0x2A3948, 0x1A2430);
+scene.add(grid);
+
+/* orbit control (custom, damped) */
+const orbit = { th:.7, ph:1.15, r:20, tgt:new THREE.Vector3(), vth:0, vph:0, auto:true };
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduced) orbit.auto = false;
+let drag=null;
+renderer.domElement.addEventListener('pointerdown', e=>{ drag={x:e.clientX,y:e.clientY,b:e.button}; e.target.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
+  if (drag.b===2) {           // pan
+    const s = orbit.r*.0016;
+    const fwd = new THREE.Vector3().subVectors(orbit.tgt, camera.position).normalize();
+    const rt = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+    const up = new THREE.Vector3().crossVectors(rt, fwd);
+    orbit.tgt.addScaledVector(rt, -dx*s).addScaledVector(up, dy*s);
+  } else { orbit.vth = -dx*.005; orbit.vph = -dy*.005; }
+});
+renderer.domElement.addEventListener('pointerup', ()=>drag=null);
+renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault());
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *= (1 + Math.sign(e.deltaY)*.09); orbit.r=Math.max(3,Math.min(120,orbit.r)); }, {passive:false});
+
+/* ════════ ship mesh builder ════════ */
+let group=null, edgeLines=null, meshSolid=null;
+let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true;
+let currentName=null;
+
+function buildShip(name, keepView) {
+  const view = keepView ? {th:orbit.th, ph:orbit.ph, r:orbit.r} : null;
+  currentName = name;
+  const ship = SHIPS[name];
+  if (group) { scene.remove(group); group.traverse(o=>{o.geometry&&o.geometry.dispose(); o.material&&o.material.dispose();}); }
+  group = new THREE.Group();
+
+  /* collect world-space faces */
+  const faces=[];                       // {verts:[[x,y,z]..], comp}
+  for (const cb of ship.cubes) {
+    for (const loop of FACES[cb.shape]) {
+      const verts = loop.map(ci => {
+        const p = rot(cb.o, corner(ci));
+        return [p[0]+cb.x, p[1]+cb.y, p[2]+cb.z];
+      });
+      faces.push({verts, comp: cb.comp});
+    }
+  }
+  /* cull coincident faces + tris hidden under quads */
+  const keyOf = vs => vs.map(v=>v.join(',')).sort().join('|');
+  const cnt = new Map();
+  faces.forEach(f => { f.k = keyOf(f.verts); cnt.set(f.k, (cnt.get(f.k)||0)+1); });
+  const quadVertSets = [];
+  faces.forEach(f => { if (f.verts.length===4 && cnt.get(f.k)===1)
+      quadVertSets.push(new Set(f.verts.map(v=>v.join(',')))); });
+  const kept = faces.filter(f => {
+    if (cnt.get(f.k) > 1) return false;                     // interior pair
+    if (f.verts.length===3) {                               // tri under a quad?
+      const vk = f.verts.map(v=>v.join(','));
+      for (const qs of quadVertSets)
+        if (vk.every(v=>qs.has(v))) return false;
+    }
+    return true;
+  });
+
+  const shown = chamferOn ? chamferFaces(kept, .07) : kept;
+
+  /* geometry: non-indexed triangles, vertex colors with per-facet tone (hull plating) */
+  const pos=[], col=[], colHull=[];
+  const cHull = new THREE.Color(COMP[HULL_ID].c);
+  const facetTone = f => {                       // deterministic per-face jitter ±6%
+    let h = 2166136261;
+    for (const ch of f.k) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    return .94 + ((h >>> 8) % 1000) / 1000 * .12;
+  };
+  const uvs=[];
+  const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
+  const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  for (const f of shown) {
+    const t = facetTone(f);
+    const c = new THREE.Color(COMP[f.comp].c).multiplyScalar(t);
+    const ch = cHull.clone().multiplyScalar(t);
+    /* planar face UVs, normalized+centered into [0,1] */
+    const e1 = norm(sub(f.verts[1], f.verts[0]));
+    const n  = norm(cross(e1, sub(f.verts[2], f.verts[0])));
+    const e2 = cross(n, e1);
+    const fuv = f.verts.map(v => [dot(sub(v,f.verts[0]),e1), dot(sub(v,f.verts[0]),e2)]);
+    const us = fuv.map(p=>p[0]), vs = fuv.map(p=>p[1]);
+    const u0 = Math.min(...us), v0 = Math.min(...vs);
+    const s = Math.max(Math.max(...us)-u0, Math.max(...vs)-v0) || 1;
+    const mu = (1-(Math.max(...us)-u0)/s)/2, mv = (1-(Math.max(...vs)-v0)/s)/2;
+    const nv = f.verts.length;
+    const idx = [];
+    for (let i=1; i<nv-1; i++) idx.push(0, i, i+1);  // fan: works for tri/quad/n-gon
+    for (const i of idx) {
+      pos.push(...f.verts[i]);
+      col.push(c.r,c.g,c.b);
+      colHull.push(ch.r,ch.g,ch.b);
+      uvs.push(...(f.plain ? BLANK_UV
+                 : atlasUV(f.comp, (fuv[i][0]-u0)/s+mu, (fuv[i][1]-v0)/s+mv)));
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(compColorOn?col:colHull,3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,2));
+  g.userData = {col, colHull};
+  g.computeVertexNormals();
+  meshSolid = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+    vertexColors:true, side:THREE.DoubleSide, flatShading:true,
+    roughness:.8, metalness:.08, map: texOn ? ATLAS : null}));
+  meshSolid.castShadow = meshSolid.receiveShadow = true;
+  group.add(meshSolid);
+
+  /* accent lines trace the facet outlines — when chamfered, the bevel strips are
+     excluded so each plate gets one crisp contour instead of a double line */
+  const eSrc = chamferOn ? shown.filter(f=>!f.plain) : shown;
+  const ePos = [];
+  for (const f of eSrc)
+    for (let i=1; i<f.verts.length-1; i++)
+      ePos.push(...f.verts[0], ...f.verts[i], ...f.verts[i+1]);
+  const gE = new THREE.BufferGeometry();
+  gE.setAttribute('position', new THREE.Float32BufferAttribute(ePos,3));
+  edgeLines = new THREE.LineSegments(
+    new THREE.EdgesGeometry(gE, 25),
+    new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true,
+                                 opacity: chamferOn ? .3 : .4}));
+  edgeLines.visible = edgesOn;
+  group.add(edgeLines);
+
+  /* wings / modules */
+  for (const el of ship.elements) {
+    let geo;
+    if (el.kind===1) geo = new THREE.BoxGeometry(.1,.55,.9);       // wing fin
+    else if (el.kind===0) geo = new THREE.BoxGeometry(.5,.5,.5);
+    else geo = new THREE.OctahedronGeometry(.32);
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({
+      color:ELEM_COLOR, transparent:true, opacity:.55}));
+    const M = ORIENTATIONS[el.o];
+    m.setRotationFromMatrix(new THREE.Matrix4().set(M[0],M[1],M[2],0, M[3],M[4],M[5],0, M[6],M[7],M[8],0, 0,0,0,1));
+    m.position.set(el.x+.5, el.y+.5, el.z+.5);
+    group.add(m);
+  }
+
+  /* center & fit */
+  const bb = new THREE.Box3().setFromObject(group);
+  const c = bb.getCenter(new THREE.Vector3()), sz = bb.getSize(new THREE.Vector3());
+  group.position.sub(c);
+  grid.position.y = -(sz.y/2)-1.2;
+  floor.position.y = grid.position.y - .03;
+  scene.add(group);
+  /* fit key light + shadow frustum to this ship */
+  const rad = sz.length()/2 + 2;
+  key.position.set(rad*.7, rad*1.15, rad*.45);
+  key.target.position.set(0,0,0);
+  const sc = key.shadow.camera;
+  sc.left = sc.bottom = -rad; sc.right = sc.top = rad;
+  sc.near = .1; sc.far = rad*3.2;
+  sc.updateProjectionMatrix();
+  orbit.tgt.set(0,0,0);
+  orbit.r = Math.max(sz.length()*1.35, 8);
+  if (view) Object.assign(orbit, view);
+  stamp(ship, sz);
+}
+
+/* ════════ title block ════════ */
+function stamp(ship, sz) {
+  const hist = {};
+  ship.cubes.forEach(c=>hist[c.comp]=(hist[c.comp]||0)+1);
+  const max = Math.max(...Object.values(hist));
+  const rows = Object.keys(COMP).filter(k=>hist[k]).sort((a,b)=>a-b).map(k=>{
+    const col = '#'+COMP[k].c.toString(16).padStart(6,'0');
+    return `<div class="crow"><span class="sw" style="background:${col}"></span>` +
+      `<span class="cn">${COMP[k].n}</span>` +
+      `<span class="bar"><i style="background:${col};width:${100*hist[k]/max}%"></i></span>` +
+      `<span class="ct">${hist[k]}</span></div>`;
+  }).join('');
+  const el = ship.elements.length ? `· элементы ${ship.elements.length}` : '';
+  document.getElementById('stamp').innerHTML =
+   `<div class="row"><div class="cell grow"><span class="lab">корабль</span><div class="big">${ship.display}</div></div>
+     <div class="cell"><span class="lab">борт №</span><div class="num">${ship.name.split('-')[0].toUpperCase()}</div></div></div>
+    <div class="row"><div class="cell grow"><span class="lab">класс</span>${ship.class}</div>
+     <div class="cell grow"><span class="lab">принадлежность</span>${ship.nation}</div>
+     <div class="cell"><span class="lab">ранг</span>${ship.rank}</div></div>
+    <div class="row"><div class="cell grow"><span class="lab">габариты (клетки)</span>${Math.round(sz.x)} × ${Math.round(sz.y)} × ${Math.round(sz.z)}</div>
+     <div class="cell grow"><span class="lab">структура</span>${ship.cubes.length} блоков ${el}</div></div>
+    <div id="comp">${rows}</div>`;
+}
+
+/* ════════ registry rail ════════ */
+const RANKS = ['I','I+','II','III','IV','V','VI','-','?'];
+const nav = document.getElementById('registry');
+const byRank = {};
+Object.values(SHIPS).forEach(s => (byRank[s.rank] ||= []).push(s));
+for (const r of RANKS) {
+  if (!byRank[r]) continue;
+  const h = document.createElement('div'); h.className='rank';
+  h.textContent = r==='-' ? 'гражданские' : (r==='?' ? 'без реестра' : 'ранг '+r);
+  nav.appendChild(h);
+  byRank[r].sort((a,b)=>a.name.localeCompare(b.name)).forEach(s=>{
+    const b = document.createElement('button'); b.className='ship'; b.dataset.name=s.name;
+    b.innerHTML = `<span class="hull">${s.name.split('-')[0].toUpperCase()}</span>` +
+                  `<span class="nm">${s.display}</span><span class="cls">${s.class}</span>`;
+    b.onclick = () => { select(s.name); };
+    nav.appendChild(b);
+  });
+}
+function select(name) {
+  nav.querySelectorAll('.ship').forEach(x=>x.classList.toggle('sel', x.dataset.name===name));
+  buildShip(name);
+}
+
+/* ════════ toggles ════════ */
+const btn = (id, fn) => { const b=document.getElementById(id);
+  b.onclick=()=>{ const on = b.getAttribute('aria-pressed')!=='true';
+    b.setAttribute('aria-pressed', on); fn(on); }; };
+btn('btnRot',  on => orbit.auto = on);
+btn('btnEdge', on => { edgesOn=on; if(edgeLines) edgeLines.visible=on; });
+btn('btnComp', on => { compColorOn=on;
+  if (meshSolid) { const g=meshSolid.geometry;
+    g.setAttribute('color', new THREE.Float32BufferAttribute(on?g.userData.col:g.userData.colHull,3)); } });
+btn('btnTex', on => { texOn=on;
+  if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
+    meshSolid.material.needsUpdate = true; } });
+btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, true); });
+
+/* ════════ loop ════════ */
+function resize() {
+  const w=stage.clientWidth, h=stage.clientHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+(function tick(){
+  requestAnimationFrame(tick);
+  if (orbit.auto && !drag) orbit.th += .0022;
+  orbit.th += orbit.vth; orbit.ph += orbit.vph;
+  orbit.vth*=.88; orbit.vph*=.88;
+  orbit.ph = Math.max(.08, Math.min(Math.PI-.08, orbit.ph));
+  camera.position.set(
+    orbit.tgt.x + orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),
+    orbit.tgt.y + orbit.r*Math.cos(orbit.ph),
+    orbit.tgt.z + orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th));
+  camera.lookAt(orbit.tgt);
+  renderer.render(scene, camera);
+})();
+
+select('m12-centurion');
+</script>
+</body>
+</html>
