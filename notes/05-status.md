@@ -96,8 +96,8 @@ wrangler deploy                  # publishes viewer/ to rs.ioupg.com
 The viewer also runs straight off disk (`viewer/index.html`); only the Playwright
 checks need a local server.
 
-**Viewer toggles:** вращение · кромки · отсеки · текстуры · фаски · затенение ·
-детали · космос · свечение · плита (cycles the 11 plate candidates).
+**Viewer toggles:** spin · edges · compartments · textures · chamfer · shading ·
+parts · space · bloom · plate (cycles the 11 plate candidates).
 
 **Tunables**, all near the top of `viewer/index.html`:
 

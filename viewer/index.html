@@ -125,22 +125,22 @@
   <h1><em>Ред Стар</em> · реестр флота</h1>
   <span class="sub">.rsconstruction recovery · 2014 → 2026</span>
   <span class="spacer"></span>
-  <button id="btnRot" aria-pressed="true">вращение</button>
-  <button id="btnEdge" aria-pressed="true">кромки</button>
-  <button id="btnComp" aria-pressed="true">отсеки</button>
-  <button id="btnTex" aria-pressed="true">текстуры</button>
-  <button id="btnCham" aria-pressed="true">фаски</button>
-  <button id="btnAO" aria-pressed="true">затенение</button>
-  <button id="btnParts" aria-pressed="false" title="Подставить извлечённые меши деталей вместо процедурных граней">детали</button>
-  <button id="btnSpace" aria-pressed="false" title="Космос вместо сетки редактора">космос</button>
-  <button id="btnBloom" aria-pressed="false" title="Свечение ярких участков">свечение</button>
-  <button id="btnPlate" title="Перебрать варианты накладных плит">плита</button>
+  <button id="btnRot" aria-pressed="true">spin</button>
+  <button id="btnEdge" aria-pressed="true">edges</button>
+  <button id="btnComp" aria-pressed="true">compartments</button>
+  <button id="btnTex" aria-pressed="true">textures</button>
+  <button id="btnCham" aria-pressed="true">chamfer</button>
+  <button id="btnAO" aria-pressed="true">shading</button>
+  <button id="btnParts" aria-pressed="false" title="Recovered part meshes in place of the procedural facets">parts</button>
+  <button id="btnSpace" aria-pressed="false" title="Space instead of the editor grid">space</button>
+  <button id="btnBloom" aria-pressed="false" title="Bloom on bright areas">bloom</button>
+  <button id="btnPlate" title="Cycle the decoration plate candidates">plate</button>
 </header>
 <main>
   <nav id="registry" aria-label="Реестр кораблей"></nav>
   <div id="stage">
     <div id="stamp"></div>
-    <div id="hint">ЛКМ — орбита · колесо — масштаб · ПКМ — сдвиг</div>
+    <div id="hint">LMB — orbit · wheel — zoom · RMB — pan</div>
   </div>
 </main>
 <script src="three.min.js"></script>
@@ -1171,7 +1171,7 @@ btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, tru
 document.getElementById('btnPlate').onclick = () => {
   const n = PLATE_MESH.quad_all ? PLATE_MESH.quad_all.length : 1;
   const v = setPlate((plateVariant + 1) % n);
-  document.getElementById('btnPlate').textContent = 'плита ' + (plateVariant+1) + '/' + n;
+  document.getElementById('btnPlate').textContent = 'plate ' + (plateVariant+1) + '/' + n;
 };
 btn('btnSpace', on => { spaceOn=on; setSpace(on); });
 btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); });
