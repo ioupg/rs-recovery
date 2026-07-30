@@ -1,7 +1,7 @@
 # Status and handoff — start here
 
 **Live:** https://rs.ioupg.com (fleet) · https://rs.ioupg.com/parts (mesh catalogue)
-**Repo:** 20 commits, working tree clean, deployed build matches HEAD.
+**Repo:** working tree clean, deployed build matches the viewer at HEAD.
 
 ---
 
