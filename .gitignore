@@ -1,5 +1,5 @@
-# 33 MB debug build — the reverse-engineering source, kept locally only.
-# Addresses and findings extracted from it are recorded in notes/.
+# 33 MB debug build — the reverse-engineering source, archived in
+# source/original-data.zip; the extracted copy stays untracked.
 RedStarEditor.Debug.Win32.backup.exe
 
 # original 2014 data — tracked as source/original-data.zip; extract it into the
