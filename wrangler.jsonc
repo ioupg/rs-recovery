@@ -1,0 +1,10 @@
+{
+  "name": "rs-fleet-registry",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./viewer"
+  },
+  "routes": [
+    { "pattern": "rs.ioupg.com", "custom_domain": true }
+  ]
+}
