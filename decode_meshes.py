@@ -214,25 +214,27 @@ def decode_variant(path):
             f = struct.unpack_from('<8f', d, vs + i*40)
             P.append(f[0:3])
             UV.append(f[6:8])
-        # normals from face winding, averaged per vertex
-        N = [[0.0, 0.0, 0.0] for _ in range(vc)]
+        # normals from face winding. NOT averaged per shared vertex: this is a
+        # hard-edged shell, and averaging across the sharp rim edges (top face,
+        # underside, skirt and window wall share vertices) cancels the normals
+        # into diagonals — the rims go dark and read as gaps between cubes.
+        # Unroll to per-corner flat normals instead.
+        flat_p, flat_n, flat_uv, out_idx = [], [], [], []
         for t in range(0, ic, 3):
             a, b, c = idx[t], idx[t+1], idx[t+2]
             u = [P[b][k]-P[a][k] for k in range(3)]
             v = [P[c][k]-P[a][k] for k in range(3)]
             n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]]
+            m = math.sqrt(sum(k*k for k in n)) or 1.0
+            n = [round(k/m, 4) for k in n]
             for j in (a, b, c):
-                for k in range(3):
-                    N[j][k] += n[k]
-        flat_p, flat_n, flat_uv = [], [], []
-        for i in range(vc):
-            m = math.sqrt(sum(c*c for c in N[i])) or 1.0
-            flat_p += [round(c, 5) for c in P[i]]
-            flat_n += [round(c/m, 4) for c in N[i]]
-            flat_uv += [round(c, 4) for c in UV[i]]
+                flat_p += [round(k, 5) for k in P[j]]
+                flat_n += n
+                flat_uv += [round(k, 4) for k in UV[j]]
+                out_idx.append(len(out_idx))
         subs.append({'tex': sorted({t.rsplit('/', 1)[-1]
                                     for t in _strings(d, 4, pos)}),
-                     'pos': flat_p, 'nrm': flat_n, 'uv': flat_uv, 'idx': list(idx)})
+                     'pos': flat_p, 'nrm': flat_n, 'uv': flat_uv, 'idx': out_idx})
         pos = vend
     return {'file': os.path.basename(path), 'declared': struct.unpack_from('<I', d, 0)[0],
             'size': len(d), 'consumed': pos, 'sub': subs, 'normals': 'computed'}
