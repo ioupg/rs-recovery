@@ -130,6 +130,7 @@
   <button id="btnComp" aria-pressed="true">отсеки</button>
   <button id="btnTex" aria-pressed="true">текстуры</button>
   <button id="btnCham" aria-pressed="true">фаски</button>
+  <button id="btnAO" aria-pressed="true">затенение</button>
 </header>
 <main>
   <nav id="registry" aria-label="Реестр кораблей"></nav>
@@ -179,6 +180,50 @@ const V3 = {
   len: a=>Math.hypot(a[0],a[1],a[2]),
 };
 const vkey = v => v.map(x=>Math.round(x*1000)).join(',');
+
+/* ── ambient occlusion, baked per vertex from cell occupancy ──
+   For a vertex, look at the eight grid cells touching it and keep the ones on the
+   outward side of the facet: those are what a hemisphere of skylight would have to
+   pass through. The fraction that are solid is the occlusion. Partial shapes
+   (wedges, tetras) count for less than a full cube since they leave the cell open.
+   Vertex colours interpolate across each facet, so this reads as a soft gradient
+   even though the shading itself is flat. */
+const SHAPE_FILL = {0:1, 1:.8, 2:.55, 3:.3};
+/* AO_POWER tightens the falloff the way raising a specular exponent does: high
+   values keep open surfaces clean and drive the darkening deep into the crevices,
+   so AO_DEPTH can be pushed hard without greying out the whole hull.
+   AO_RANGE is where the raw occlusion ratio saturates — a cosine-weighted sample of
+   this neighbourhood tops out near 0.7 in the deepest corners (measured across the
+   fleet), and normalising by it puts the whole curve to work instead of its toe. */
+const AO_POWER = 1.8, AO_DEPTH = .86, AO_RANGE = .42;
+function occupancyOf(cubes) {
+  const occ = new Map();
+  for (const c of cubes)
+    occ.set(`${c.x},${c.y},${c.z}`, Math.max(occ.get(`${c.x},${c.y},${c.z}`)||0,
+                                             SHAPE_FILL[c.shape] ?? 1));
+  return occ;
+}
+function vertexAO(v, n, occ, ownKey) {
+  const cx = Math.round(v[0]), cy = Math.round(v[1]), cz = Math.round(v[2]);
+  let solid = 0, total = 0;
+  /* Cosine-weighted obscurance over a 4x4x4 neighbourhood. A single ring of eight
+     cells is too coarse for slanted facets — a 45-degree plane admits only two of
+     them, so the result quantises into blotches. Sampling wider and weighting by
+     cos(theta)/d^2 resolves the hemisphere smoothly at any orientation. */
+  for (let i=-2; i<2; i++) for (let j=-2; j<2; j++) for (let k=-2; k<2; k++) {
+    const dx = i+.5, dy = j+.5, dz = k+.5;          // cell centre relative to vertex
+    const d2 = dx*dx + dy*dy + dz*dz, d = Math.sqrt(d2);
+    const cos = (dx*n[0] + dy*n[1] + dz*n[2]) / d;
+    if (cos <= 0) continue;                          // behind the facet
+    const key = `${cx+i},${cy+j},${cz+k}`;
+    if (key === ownKey) continue;                    // a wedge must not occlude its own slope
+    const w = cos / d2;
+    total += w;
+    solid += w * (occ.get(key) || 0);
+  }
+  if (!total) return 1;
+  return 1 - AO_DEPTH * Math.pow(Math.min(1, solid/total/AO_RANGE), AO_POWER);
+}
 
 function chamferFaces(kept, b) {
   const {sub, add, mul, cross, dot, len} = V3;
@@ -435,7 +480,19 @@ renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *
 
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
-let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true;
+let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true;
+
+/* vertex colours = compartment tint (or plain hull) x baked occlusion */
+function paintColors(g) {
+  const {col, colHull, ao} = g.userData;
+  const base = compColorOn ? col : colHull;
+  const out = new Float32Array(base.length);
+  for (let i=0, v=0; i<base.length; i+=3, v++) {
+    const k = aoOn ? ao[v] : 1;
+    out[i] = base[i]*k; out[i+1] = base[i+1]*k; out[i+2] = base[i+2]*k;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(out,3));
+}
 let currentName=null;
 
 function buildShip(name, keepView) {
@@ -483,7 +540,8 @@ function buildShip(name, keepView) {
     for (const ch of f.k) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
     return .94 + ((h >>> 8) % 1000) / 1000 * .12;
   };
-  const uvs=[];
+  const uvs=[], ao=[];
+  const occ = occupancyOf(ship.cubes);      /* hull only — attached elements never occlude */
   const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
   const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
   const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
@@ -494,7 +552,15 @@ function buildShip(name, keepView) {
     const ch = cHull.clone().multiplyScalar(t);
     /* planar face UVs, normalized+centered into [0,1] */
     const e1 = norm(sub(f.verts[1], f.verts[0]));
-    const n  = norm(cross(e1, sub(f.verts[2], f.verts[0])));
+    let   n  = norm(cross(e1, sub(f.verts[2], f.verts[0])));
+    /* facet winding isn't consistently outward, so settle it against the hull:
+       whichever side of the facet holds more material is the inside */
+    const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
+                       .map(x=>x/f.verts.length);
+    const at = sgn => occ.get(
+      `${Math.floor(cen[0]+sgn*.25*n[0])},${Math.floor(cen[1]+sgn*.25*n[1])},${Math.floor(cen[2]+sgn*.25*n[2])}`) || 0;
+    if (at(+1) > at(-1)) n = [-n[0], -n[1], -n[2]];
+    const ownKey = `${Math.floor(cen[0]-.3*n[0])},${Math.floor(cen[1]-.3*n[1])},${Math.floor(cen[2]-.3*n[2])}`;
     const e2 = cross(n, e1);
     const fuv = f.verts.map(v => [dot(sub(v,f.verts[0]),e1), dot(sub(v,f.verts[0]),e2)]);
     const us = fuv.map(p=>p[0]), vs = fuv.map(p=>p[1]);
@@ -508,15 +574,16 @@ function buildShip(name, keepView) {
       pos.push(...f.verts[i]);
       col.push(c.r,c.g,c.b);
       colHull.push(ch.r,ch.g,ch.b);
+      ao.push(vertexAO(f.verts[i], n, occ, ownKey));
       uvs.push(...(f.plain ? BLANK_UV
                  : atlasUV(f.comp, (fuv[i][0]-u0)/s+mu, (fuv[i][1]-v0)/s+mv)));
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(compColorOn?col:colHull,3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,2));
-  g.userData = {col, colHull};
+  g.userData = {col, colHull, ao};
+  paintColors(g);
   g.computeVertexNormals();
   meshSolid = new THREE.Mesh(g, new THREE.MeshStandardMaterial({
     vertexColors:true, side:THREE.DoubleSide, flatShading:true,
@@ -628,9 +695,8 @@ const btn = (id, fn) => { const b=document.getElementById(id);
     b.setAttribute('aria-pressed', on); fn(on); }; };
 btn('btnRot',  on => orbit.auto = on);
 btn('btnEdge', on => { edgesOn=on; if(edgeLines) edgeLines.visible=on; });
-btn('btnComp', on => { compColorOn=on;
-  if (meshSolid) { const g=meshSolid.geometry;
-    g.setAttribute('color', new THREE.Float32BufferAttribute(on?g.userData.col:g.userData.colHull,3)); } });
+btn('btnComp', on => { compColorOn=on; if (meshSolid) paintColors(meshSolid.geometry); });
+btn('btnAO',   on => { aoOn=on;        if (meshSolid) paintColors(meshSolid.geometry); });
 btn('btnTex', on => { texOn=on;
   if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
     meshSolid.material.needsUpdate = true; } });

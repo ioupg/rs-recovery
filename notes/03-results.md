@@ -28,11 +28,45 @@ custom domain route). Redeploy after changes with `python parse_rsconstruction.p
 
 - Fleet registry rail grouped by rank (I..VI + civilian), ГОСТ-style title block
   with hull no., class, nation, dims, and per-compartment ledger with counts.
-- Compartment coloring (toggle), sharp-edge overlay (toggle), auto-rotate (toggle),
-  orbit/zoom/pan. Wings/modules drawn as translucent markers (exact part meshes
-  are in compiled DX11 buffers — not decoded, see future work).
+- Toggles: auto-rotate, accent edges, compartment color, textures, chamfers,
+  ambient occlusion. Orbit/zoom/pan. Wings/modules drawn as translucent markers
+  (exact part meshes are in compiled DX11 buffers — not decoded, see future work);
+  they neither cast shadows nor occlude, since their real volume is unknown.
 - Interior faces culled exactly: all world vertices are integers (rotations are
   signed permutations about cube centers), coincident faces + tris-under-quads dropped.
+
+### Rendering
+
+- **Shadows** — soft (PCF) shadow map from a key light whose frustum is refitted
+  per ship, so hulls self-shadow and drop a contact shadow on the floor.
+- **Facets** — flat-shaded standard material plus a deterministic per-facet tonal
+  jitter (±6%), so neighbouring plates separate instead of merging.
+- **Textures** — procedural atlas keyed to compartment use: abstract plating
+  treatments (seam rhythm, striation direction, grain), *not* pictograms. Grayscale,
+  multiplying the compartment tint. Faces get planar UVs normalised into their cell.
+- **Chamfers** — every exterior facet insets in its own plane; gaps close with bevel
+  strips along shared edges and fan patches at corners. The hull is not a clean
+  manifold (wedge slopes abutting cube plates give valence-1 and valence-3 edges —
+  28 on the Archangel), so those edges get flaps back to the original edge instead,
+  otherwise the inset tears holes.
+- **Ambient occlusion** — baked per vertex from cell occupancy rather than screen
+  space. For each vertex a 4×4×4 neighbourhood is sampled, weighted by
+  cos(θ)/d², and the solid fraction is the occlusion (partial shapes occlude less
+  than full cubes). Two things this has to get right:
+  - *Facet orientation.* Winding from the shape tables is not consistently outward,
+    so each normal is settled against the occupancy map — whichever side holds more
+    material is the inside — before the hemisphere is built.
+  - *Slanted facets.* A single ring of eight cells admits only two of them at 45°,
+    which quantises AO on wedges and tetras into blotches, and the wedge's own cell
+    can end up occluding its own slope. Hence the wider cosine-weighted sample and
+    an explicit exclusion of the owning cell.
+
+  `AO_POWER` / `AO_DEPTH` / `AO_RANGE` tune the falloff the way a specular exponent
+  does. The raw ratio saturates near 0.4–0.7 in the deepest corners (measured across
+  the fleet), so `AO_RANGE` normalises to that before the curve is applied —
+  otherwise the whole thing runs in the toe of the curve and is invisible.
+  At 1.8 / 0.86 / 0.42 the median vertex is untouched and the darkest few percent
+  reach ~0.15, which keeps open plating clean and puts the contrast in the crevices.
 
 ## Validation summary
 
