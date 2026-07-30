@@ -9,3 +9,6 @@ _err.txt
 # cloudflare
 .wrangler/
 node_modules/
+
+# playwright-mcp scratch output
+.playwright-mcp/

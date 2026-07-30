@@ -62,6 +62,17 @@ def _find_submesh(d, start):
     return None
 
 
+def _ccw(idx):
+    """The asset compiler wrote D3D-style triangles, clockwise seen from outside
+    (measured: winding cross-product is exactly opposite the stored normals on
+    all 74 stored-normal meshes). Swap each triangle to counter-clockwise so the
+    viewer's front faces are the exterior."""
+    out = list(idx)
+    for t in range(0, len(out), 3):
+        out[t+1], out[t+2] = out[t+2], out[t+1]
+    return out
+
+
 def _strings(d, a, b):
     out, i = [], a
     while i < min(b, len(d)) - 4:
@@ -93,7 +104,7 @@ def decode(path):
             uv_f += [round(x, 4) for x in f[6:8]]
         tex = sorted({t.rsplit('/', 1)[-1] for t in _strings(d, prev, vstart)})
         subs.append({'tex': tex, 'pos': pos_f, 'nrm': nrm_f, 'uv': uv_f,
-                     'idx': list(idx)})
+                     'idx': _ccw(idx)})
         pos = prev = vend + 4 + icount*4
     return {'file': os.path.basename(path), 'declared': declared,
             'size': len(d), 'consumed': pos, 'sub': subs}
@@ -197,6 +208,7 @@ def decode_variant(path):
             pos += 1
             continue
         vs = iend + 8
+        idx = _ccw(idx)                 # same D3D winding as the stored-normal files
         P, UV = [], []
         for i in range(vc):
             f = struct.unpack_from('<8f', d, vs + i*40)

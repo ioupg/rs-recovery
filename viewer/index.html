@@ -183,6 +183,13 @@ const FACES = {
   3: [[1,4,5],[1,5,7],[4,5,7],[1,4,7]],
 };
 const corner = i => [i&1, (i>>1)&1, (i>>2)&1];
+/* solid centroid per shape (mean of its corner set): strictly interior for these
+   convex solids, so a facet normal is outward iff it points away from it */
+const SHAPE_CENTROID = Object.fromEntries(Object.keys(FACES).map(s => {
+  const ids = [...new Set(FACES[s].flat())];
+  const m = ids.reduce((a,i)=>{const c=corner(i); return [a[0]+c[0],a[1]+c[1],a[2]+c[2]];},[0,0,0]);
+  return [s, m.map(x=>x/ids.length)];
+}));
 
 /* ── chamfer: inset every exterior facet, then close the gaps with bevel strips
       along shared edges and fan patches at corners. Interior edges never appear
@@ -241,6 +248,21 @@ function vertexAO(v, n, occ, ownKey) {
   return 1 - AO_DEPTH * Math.pow(Math.min(1, solid/total/AO_RANGE), AO_POWER);
 }
 
+/* Point a facet normal outward. Winding is not reliably outward (the k6 slope
+   loop winds inward), and the old occupancy probe ties on slanted facets — a
+   slope runs through the middle of its own cell, so a quarter-step to either
+   side of its centre floors into the same cell and no flip happens. Faces
+   therefore carry the centroid of their source solid: outward is away from it.
+   Chamfer strips inherit a centroid from their parents; anything without one
+   falls back to the probe. */
+function orient(n, cen, f, occ) {
+  if (f.sc)
+    return (n[0]*(cen[0]-f.sc[0]) + n[1]*(cen[1]-f.sc[1]) + n[2]*(cen[2]-f.sc[2])) < 0
+      ? [-n[0],-n[1],-n[2]] : n;
+  const at = s => occ.get(`${Math.floor(cen[0]+s*.25*n[0])},${Math.floor(cen[1]+s*.25*n[1])},${Math.floor(cen[2]+s*.25*n[2])}`) || 0;
+  return at(+1) > at(-1) ? [-n[0],-n[1],-n[2]] : n;
+}
+
 function chamferFaces(kept, b) {
   const {sub, add, mul, cross, dot, len} = V3;
   /* 1 — inset each facet within its own plane */
@@ -253,7 +275,7 @@ function chamferFaces(kept, b) {
       dmin = Math.min(dmin, len(cross(e, sub(c,a))) / (len(e)||1));
     }
     const t = Math.min(b/dmin, .4);
-    return {verts:f.verts, comp:f.comp, k:f.k, iv:f.verts.map(v=>add(v, mul(sub(c,v), t)))};
+    return {verts:f.verts, comp:f.comp, k:f.k, sc:f.sc, iv:f.verts.map(v=>add(v, mul(sub(c,v), t)))};
   });
 
   /* 2 — index edges and vertex incidences */
@@ -269,7 +291,7 @@ function chamferFaces(kept, b) {
     }
   });
 
-  const out = F.map(f => ({verts:f.iv, comp:f.comp, k:f.k}));
+  const out = F.map(f => ({verts:f.iv, comp:f.comp, k:f.k, sc:f.sc}));
 
   /* 3 — bevel strip per manifold edge; elsewhere (open or non-manifold edges,
         where a wedge slope abuts a cube plate) drop a flap back to the original
@@ -281,14 +303,16 @@ function chamferFaces(kept, b) {
       const bi = at(vkey(fa.verts[A.i])), bj = at(vkey(fa.verts[A.j]));
       if (bi >= 0 && bj >= 0) {
         out.push({verts:[fa.iv[A.i], fa.iv[A.j], fb.iv[bj], fb.iv[bi]],
-                  comp:fa.comp, k:'b'+fa.k+A.i, plain:true});
+                  comp:fa.comp, k:'b'+fa.k+A.i, plain:true,
+                  sc: fa.sc && fb.sc &&
+                      [(fa.sc[0]+fb.sc[0])/2, (fa.sc[1]+fb.sc[1])/2, (fa.sc[2]+fb.sc[2])/2]});
         continue;
       }
     }
     for (const U of uses) {
       const f = F[U.fi];
       out.push({verts:[f.iv[U.i], f.iv[U.j], f.verts[U.j], f.verts[U.i]],
-                comp:f.comp, k:'f'+f.k+U.i, plain:true});
+                comp:f.comp, k:'f'+f.k+U.i, plain:true, sc:f.sc});
     }
   }
 
@@ -326,8 +350,13 @@ function chamferFaces(kept, b) {
       }
       ring.forEach(r=>seen.add(r.fi));
       if (ring.length < 3) continue;
+      const scs = ring.map(r=>F[r.fi].sc).filter(Boolean);
       out.push({verts: ring.map(r => F[r.fi].iv[r.li]),
-                comp: F[ring[0].fi].comp, k:'c'+vkStr, plain:true});
+                comp: F[ring[0].fi].comp, k:'c'+vkStr, plain:true,
+                sc: scs.length === ring.length
+                    ? scs.reduce((a,s)=>[a[0]+s[0],a[1]+s[1],a[2]+s[2]],[0,0,0])
+                         .map(x=>x/scs.length)
+                    : undefined});
     }
   }
   return out;
@@ -741,12 +770,14 @@ function buildShip(name, keepView) {
   /* collect world-space faces */
   const faces=[];                       // {verts:[[x,y,z]..], comp}
   for (const cb of ship.cubes) {
+    const sc = rot(cb.o, SHAPE_CENTROID[cb.shape]);
+    sc[0] += cb.x; sc[1] += cb.y; sc[2] += cb.z;
     for (const loop of FACES[cb.shape]) {
       const verts = loop.map(ci => {
         const p = rot(cb.o, corner(ci));
         return [p[0]+cb.x, p[1]+cb.y, p[2]+cb.z];
       });
-      faces.push({verts, comp: cb.comp, shape: cb.shape});
+      faces.push({verts, comp: cb.comp, shape: cb.shape, sc});
     }
   }
   /* cull coincident faces + tris hidden under quads */
@@ -836,8 +867,7 @@ function buildShip(name, keepView) {
         let n = norm(cross(norm(sub(f.verts[1],f.verts[0])), sub(f.verts[2],f.verts[0])));
         const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
                            .map(x=>x/f.verts.length);
-        const at = sg => occ2.get(`${Math.floor(cen[0]+sg*.25*n[0])},${Math.floor(cen[1]+sg*.25*n[1])},${Math.floor(cen[2]+sg*.25*n[2])}`) || 0;
-        if (at(+1) > at(-1)) n = [-n[0],-n[1],-n[2]];
+        n = orient(n, cen, f, occ2);
         const vs = f.verts.map(v => [v[0]-n[0]*FILL_INSET,
                                      v[1]-n[1]*FILL_INSET,
                                      v[2]-n[2]*FILL_INSET]);
@@ -869,8 +899,7 @@ function buildShip(name, keepView) {
         let n = norm(cross(norm(E1), E2));
         const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
                            .map(x=>x/f.verts.length);
-        const at = s => occ2.get(`${Math.floor(cen[0]+s*.25*n[0])},${Math.floor(cen[1]+s*.25*n[1])},${Math.floor(cen[2]+s*.25*n[2])}`) || 0;
-        if (at(+1) > at(-1)) n = [-n[0],-n[1],-n[2]];
+        n = orient(n, cen, f, occ2);
         /* solve the plate's local outline onto this facet */
         const [a0,a1,a2] = pm.outline;
         /* shrink the plate about its own centre: at full size it covers the whole
@@ -948,13 +977,11 @@ function buildShip(name, keepView) {
     /* planar face UVs, normalized+centered into [0,1] */
     const e1 = norm(sub(f.verts[1], f.verts[0]));
     let   n  = norm(cross(e1, sub(f.verts[2], f.verts[0])));
-    /* facet winding isn't consistently outward, so settle it against the hull:
-       whichever side of the facet holds more material is the inside */
+    /* facet winding isn't consistently outward, so settle it against the source
+       solid's centroid (probe fallback for chamfer strips) */
     const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
                        .map(x=>x/f.verts.length);
-    const at = sgn => occ.get(
-      `${Math.floor(cen[0]+sgn*.25*n[0])},${Math.floor(cen[1]+sgn*.25*n[1])},${Math.floor(cen[2]+sgn*.25*n[2])}`) || 0;
-    if (at(+1) > at(-1)) n = [-n[0], -n[1], -n[2]];
+    n = orient(n, cen, f, occ);
     const ownKey = `${Math.floor(cen[0]-.3*n[0])},${Math.floor(cen[1]-.3*n[1])},${Math.floor(cen[2]-.3*n[2])}`;
     const e2 = cross(n, e1);
     const fuv = f.verts.map(v => [dot(sub(v,f.verts[0]),e1), dot(sub(v,f.verts[0]),e2)]);

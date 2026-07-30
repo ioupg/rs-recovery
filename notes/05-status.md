@@ -33,6 +33,7 @@ exterior face.
 | wing placement | all 110 wings across the fleet sit in *empty* cells anchored to the hull along an edge — never inside it |
 | `.compiled` mesh container | `u32 submeshCount`, then per submesh a material blob (floats, `0xCD` fill, two length-prefixed texture paths), a u32-counted 32-byte vertex block, a u32-counted u32 index block. **75/75 files decode** |
 | second mesh format | one later export uses a 40-byte vertex (pos3, normal3, uv2, pad2) with the index block *first* and normals left as `0xCDCDCD`; normals are recomputed from winding. This is the missing `k8` hull shell |
+| mesh winding | D3D-style, **clockwise seen from outside**: on all 74 stored-normal meshes the winding cross-product is exactly opposite the stored (correct, outward) normals. The decoder flips every triangle to CCW so three.js front faces are the exterior — without this, `DoubleSide` inverts lighting normals on all outside surfaces, and the recomputed `k8` normals come out inward |
 | shape ↔ mesh | matched by corner set — a candidate qualifies only if its corners reproduce the exe's own table. `k7`, `k6`, `k4` each had exactly **one** candidate |
 | hull shells are shells | each face is a 0.05 rim around an open window: area on the cell face is exactly `1 − 0.9² = 0.19` |
 | naming vocabulary | `k8 k7 k6 k4` · `p1111 p121 p2121 p222A p222V` · `w1111 w121 w2121 w321 w222` · ten `m1*…` modules (tables at `0x1db7218`, `0x1db7130`, `0x1db71f0`) |
@@ -112,6 +113,12 @@ Bloom lives in `initBloom()` — `UnrealBloomPass(…, strength, radius, thresho
 Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
 
 **Gotchas that cost time before:**
+- Facet winding in the viewer's `FACES` table is not consistently outward (the k6
+  slope loop winds inward), and it cannot be reordered — vertex order defines the
+  plate mapping frame validated against the exe tables. Normals are oriented
+  against the source cube's solid centroid instead (`orient()`); the old
+  occupancy probe tied on slanted facets and left wedge slopes AO-black
+  (`notes/ao-wrong.jpg`).
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.
