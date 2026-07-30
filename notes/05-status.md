@@ -1,7 +1,7 @@
 # Status and handoff — start here
 
 **Live:** https://rs.ioupg.com (fleet) · https://rs.ioupg.com/parts (mesh catalogue)
-**Repo:** 14 commits, working tree clean, deployed build matches HEAD.
+**Repo:** 20 commits, working tree clean, deployed build matches HEAD.
 
 ---
 
@@ -34,6 +34,7 @@ exterior face.
 | `.compiled` mesh container | `u32 submeshCount`, then per submesh a material blob (floats, `0xCD` fill, two length-prefixed texture paths), a u32-counted 32-byte vertex block, a u32-counted u32 index block. **75/75 files decode** |
 | second mesh format | one later export uses a 40-byte vertex (pos3, normal3, uv2, pad2) with the index block *first* and normals left as `0xCDCDCD`; normals are recomputed from winding. This is the missing `k8` hull shell |
 | mesh winding | D3D-style, **clockwise seen from outside**: on all 74 stored-normal meshes the winding cross-product is exactly opposite the stored (correct, outward) normals. The decoder flips every triangle to CCW so three.js front faces are the exterior — without this, `DoubleSide` inverts lighting normals on all outside surfaces, and the recomputed `k8` normals come out inward |
+| plate mounting | plates are authored with the mounting back at z=0 and the relief extending to **−z** (same D3D-handed convention as the winding). The viewer mounts them **mirrored along the facet normal** — back on the face plane, relief standing out of the hull. Mapped +z-along-normal instead, the relief sinks into the window and only the flat back shows |
 | shape ↔ mesh | matched by corner set — a candidate qualifies only if its corners reproduce the exe's own table. `k7`, `k6`, `k4` each had exactly **one** candidate |
 | hull shells are shells | each face is a 0.05 rim around an open window: area on the cell face is exactly `1 − 0.9² = 0.19` |
 | naming vocabulary | `k8 k7 k6 k4` · `p1111 p121 p2121 p222A p222V` · `w1111 w121 w2121 w321 w222` · ten `m1*…` modules (tables at `0x1db7218`, `0x1db7130`, `0x1db71f0`) |
@@ -74,10 +75,13 @@ choice stays a choice.
   `u32 height`, `w·h·4` bytes, 52-byte trailer — consistent across every file
   (512² craftHull, 256² for the JPEGs, 128² ContourAlum). RGB reads cleanly; the
   4th byte per pixel is *not* alpha (values like 7 and 9) and is unexplained.
-  Decoding these would make the "текстуры" toggle meaningful in detail mode, using
+  Decoding these would make the "textures" toggle meaningful in detail mode, using
   the ship's real 2014 textures instead of the procedural stand-in atlas.
 - **Module ↔ system mapping.** Nine cages exist for ten `m1*` names; they are
   currently handed out by compartment id in a stable order. Same hash blocker.
+- **Cages poke out of partial cells.** The module cages are full-cell meshes, so
+  in a wedge or tetra cell the cage can show through the slope face (visible on
+  Hammer's bottom wedges). Cosmetic; would need per-shape clipping or scaling.
 - **Reviving the exe.** `settings.bin` was overwritten by the failed run on
   2026-07-30. `_settings.bin` is the 2020 backup. Restoring it may fix the
   "fails after first start" behaviour. Never attempted — back up the directory first.
@@ -119,6 +123,12 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
   against the source cube's solid centroid instead (`orient()`); the old
   occupancy probe tied on slanted facets and left wedge slopes AO-black
   (`notes/ao-wrong.jpg`).
+- The plate mapping needs a **right-handed facet frame**: the mirror mounting
+  rewinds every plate triangle, and on inward-wound loops (`orient()` flipped n
+  but E1/E2 kept the loop order) the mapping mirrors the plate a second time
+  in-plane and the winding comes out inverted — `DoubleSide` then lights those
+  plates with backwards normals. The loop is walked backwards when its winding
+  normal opposes the outward one; the filler backing gets the same treatment.
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.

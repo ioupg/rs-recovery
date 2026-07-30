@@ -54,8 +54,11 @@ custom domain route). Redeploy after changes with `python parse_rsconstruction.p
   cos(θ)/d², and the solid fraction is the occlusion (partial shapes occlude less
   than full cubes). Two things this has to get right:
   - *Facet orientation.* Winding from the shape tables is not consistently outward,
-    so each normal is settled against the occupancy map — whichever side holds more
-    material is the inside — before the hemisphere is built.
+    so each normal is pointed away from the source cube's solid centroid (strictly
+    interior for these convex shapes) before the hemisphere is built. An earlier
+    occupancy-probe approach — whichever side holds more material is the inside —
+    ties on slanted facets, whose ±¼-step probes land in the facet's own cell,
+    and left every wedge slope AO-black.
   - *Slanted facets.* A single ring of eight cells admits only two of them at 45°,
     which quantises AO on wedges and tetras into blotches, and the wedge's own cell
     can end up occluding its own slope. Hence the wider cosine-weighted sample and

@@ -4,7 +4,7 @@
 vertices/edges/faces + metadata) from the 2014 backup of `RedStarEditor.Debug.Win32.backup.exe`,
 recover geometry from all 40+ ship files, and build a three.js viewer.
 
-## Inventory (D:\non-esp\double-trouble)
+## Inventory (repository root)
 
 - `RedStarEditor.Debug.Win32.backup.exe` — 33 MB, MSVC **Debug** Win32 build, 2014-06-29.
   Debug build → expect rich strings (class/field names, asserts, RTTI).
