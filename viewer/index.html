@@ -132,6 +132,8 @@
   <button id="btnCham" aria-pressed="true">фаски</button>
   <button id="btnAO" aria-pressed="true">затенение</button>
   <button id="btnParts" aria-pressed="false" title="Подставить извлечённые меши деталей вместо процедурных граней">детали</button>
+  <button id="btnSpace" aria-pressed="false" title="Космос вместо сетки редактора">космос</button>
+  <button id="btnBloom" aria-pressed="false" title="Свечение ярких участков">свечение</button>
 </header>
 <main>
   <nav id="registry" aria-label="Реестр кораблей"></nav>
@@ -143,6 +145,7 @@
 <script src="three.min.js"></script>
 <script src="ships.js"></script>
 <script src="shapes.js"></script>
+<script src="postfx.js"></script>
 <script>
 /* ════════ data semantics ════════ */
 const COMP = {
@@ -159,6 +162,8 @@ const COMP = {
 };
 const HULL_ID = 8;
 const WING_COLOR = 0x51636F;
+/* plates are shrunk slightly so the girder frame stays visible under them */
+const PLATE_SCALE = .84;
 
 /* faces per shape as corner-index loops (validated vs exe plate tables) */
 const FACES = {
@@ -435,9 +440,10 @@ stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0A0E14);
 scene.fog = new THREE.Fog(0x0A0E14, 60, 140);
-const camera = new THREE.PerspectiveCamera(40, 1, .1, 500);
+const camera = new THREE.PerspectiveCamera(40, 1, .1, 1200);
 
-scene.add(new THREE.HemisphereLight(0x9FB6C9, 0x2A3542, .9));
+const hemi = new THREE.HemisphereLight(0x9FB6C9, 0x2A3542, .9);
+scene.add(hemi);
 const key = new THREE.DirectionalLight(0xFFF2DC, 1.15);
 key.position.set(6,10,4);
 key.castShadow = true;
@@ -457,6 +463,215 @@ floor.receiveShadow = true;
 scene.add(floor);
 const grid = new THREE.GridHelper(40, 40, 0x2A3948, 0x1A2430);
 scene.add(grid);
+
+/* ════════ space environment ════════
+   Built procedurally so the page stays self-contained: a faint equirect nebula
+   wash on an inverted sphere, plus a real star catalogue-ish point cloud. Star
+   brightness follows a steep power law so a handful are much brighter than the
+   rest — that, plus bloom, is what sells the depth. */
+const SKY_VERT = `
+  varying vec3 vDir;
+  void main() {
+    vDir = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+
+/* Procedural deep-space sky: domain-warped fBm for the nebula, plus four
+   cell-hashed star layers. All resolution-independent — no texture to alias. */
+const SKY_FRAG = `
+  precision highp float;
+  varying vec3 vDir;
+  uniform float uSeed;
+
+  float hash13(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  vec3 hash33(vec3 p) {
+    return vec3(hash13(p), hash13(p + 19.19), hash13(p + 43.71));
+  }
+  float vnoise(vec3 x) {
+    vec3 i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    float n000 = hash13(i + vec3(0,0,0)), n100 = hash13(i + vec3(1,0,0));
+    float n010 = hash13(i + vec3(0,1,0)), n110 = hash13(i + vec3(1,1,0));
+    float n001 = hash13(i + vec3(0,0,1)), n101 = hash13(i + vec3(1,0,1));
+    float n011 = hash13(i + vec3(0,1,1)), n111 = hash13(i + vec3(1,1,1));
+    return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+               mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+  }
+  float fbm(vec3 p) {
+    float a = 0.5, s = 0.0;
+    for (int i = 0; i < 6; i++) { s += a * vnoise(p); p *= 2.03; a *= 0.5; }
+    return s;
+  }
+  /* ridged fBm gives the clouds filaments instead of cotton wool */
+  float ridge(vec3 p) {
+    float a = 0.5, s = 0.0;
+    for (int i = 0; i < 5; i++) {
+      s += a * (1.0 - abs(vnoise(p) * 2.0 - 1.0));
+      p *= 2.11; a *= 0.5;
+    }
+    return s;
+  }
+  /* one star per cell, so cost stays flat no matter how dense it looks.
+     Halo size and strength both scale with magnitude, so faint stars stay
+     pin-sharp and only the bright ones flare. */
+  float starLayer(vec3 dir, float scale, float keep, float core, float glow) {
+    vec3 p = dir * scale;
+    vec3 i = floor(p), f = fract(p);
+    float pick = hash13(i + uSeed);
+    if (pick > keep) return 0.0;
+    vec3 o = hash33(i + 5.3);
+    float d = length(f - o);
+    float mag = pow(pick / keep, 3.5);
+    float pt = smoothstep(core * (0.45 + 0.55 * mag), 0.0, d) * mag;
+    float ha = smoothstep(core * 2.0 * (0.3 + 0.7 * mag), 0.0, d) * mag * mag;
+    return pt + glow * ha;
+  }
+
+  void main() {
+    vec3 dir = normalize(vDir);
+    /* galactic band: dense along one great circle, sparse at the poles */
+    vec3 axis = normalize(vec3(0.38, 0.86, -0.34));
+    float bd = dot(dir, axis);
+    float band = exp(-pow(bd * 2.30, 2.0));
+    float core = exp(-pow(bd * 5.20, 2.0));
+
+    /* nebula — fBm warped by another fBm, then ridged for filaments */
+    vec3 q = dir * 2.15 + uSeed;
+    vec3 w = vec3(fbm(q), fbm(q + 3.1), fbm(q + 7.7));
+    float n  = fbm(q * 1.60 + w * 2.70);
+    float n2 = fbm(q * 3.90 - w * 1.30);
+    float fl = ridge(q * 2.60 + w * 1.80);
+
+    float cloud = smoothstep(0.36, 0.74, n) * (0.22 + 0.95 * band);
+    cloud += 0.62 * pow(max(fl - 0.55, 0.0) * 2.2, 2.0) * smoothstep(0.40, 0.86, n) * band;
+
+    vec3 deep = vec3(0.045, 0.085, 0.235);
+    vec3 rose = vec3(0.265, 0.075, 0.185);
+    vec3 teal = vec3(0.020, 0.155, 0.170);
+    vec3 neb = mix(deep, rose, smoothstep(0.32, 0.80, n2));
+    neb = mix(neb, teal, smoothstep(0.52, 0.94, fbm(q * 0.85 - 4.2)));
+    neb *= cloud * 1.75;
+    /* hot cores where the filaments pile up */
+    neb += vec3(0.95, 0.62, 0.42) * pow(max(cloud - 0.55, 0.0), 2.0) * 0.85;
+    /* dust lanes bite back into the band */
+    float dust = smoothstep(0.48, 0.84, fbm(q * 3.10 + 11.0)) * band;
+    neb *= 1.0 - 0.74 * dust;
+
+    /* unresolved glow, brightest right along the galactic core */
+    vec3 col = neb
+             + vec3(0.022, 0.030, 0.058) * band * (0.30 + 0.70 * n)
+             + vec3(0.075, 0.070, 0.058) * core * (0.35 + 0.65 * n);
+
+    /* star layers: a dense faint dusting up to sparse bright anchors */
+    float s0 = starLayer(dir, 470.0, 0.42, 0.040, 0.00);
+    float s1 = starLayer(dir, 250.0, 0.34, 0.055, 0.08);
+    float s2 = starLayer(dir, 128.0, 0.24, 0.075, 0.16);
+    float s3 = starLayer(dir,  61.0, 0.13, 0.100, 0.30);
+    float s4 = starLayer(dir,  26.0, 0.05, 0.120, 0.55);
+    float dens = 0.45 + 0.85 * band;
+    float faint = (s0 * 0.40 + s1 * 0.60 + s2 * 0.90) * dens;
+    float bright = s3 * 1.05 + s4 * 1.55;
+
+    /* colour temperature varies per star cell */
+    float t = hash13(floor(dir * 61.0) + 91.7);
+    vec3 tint = mix(vec3(0.72, 0.83, 1.00), vec3(1.00, 0.78, 0.58),
+                    smoothstep(0.58, 1.0, t));
+    col += vec3(0.74, 0.82, 0.96) * faint;
+    col += tint * bright;
+
+    gl_FragColor = vec4(col, 1.0);
+  }`;
+
+function starSprite() {
+  const n = 64, cv = document.createElement('canvas'); cv.width = cv.height = n;
+  const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(n/2,n/2,0,n/2,n/2,n/2);
+  grd.addColorStop(0,   'rgba(255,255,255,1)');
+  grd.addColorStop(.18, 'rgba(255,255,255,.85)');
+  grd.addColorStop(.42, 'rgba(190,210,255,.22)');
+  grd.addColorStop(1,   'rgba(160,190,255,0)');
+  g.fillStyle = grd; g.fillRect(0,0,n,n);
+  return new THREE.CanvasTexture(cv);
+}
+
+function makeStars(count = 900, radius = 380) {
+  const pos = new Float32Array(count*3), col = new Float32Array(count*3);
+  const siz = new Float32Array(count);
+  let seed = 0x1234567;
+  const rnd = () => ((seed = (seed*1103515245 + 12345) & 0x7FFFFFFF) / 0x7FFFFFFF);
+  const C = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    /* uniform on the sphere, slightly concentrated toward the galactic band */
+    const u = rnd()*2 - 1, th = rnd()*Math.PI*2;
+    const s = Math.sqrt(1 - u*u);
+    const y = u * (rnd() < .55 ? .55 : 1);
+    const k = Math.sqrt(Math.max(0, 1 - y*y));
+    pos[i*3]   = radius * k * Math.cos(th);
+    pos[i*3+1] = radius * y;
+    pos[i*3+2] = radius * k * Math.sin(th);
+    const mag = Math.pow(rnd(), 5);              // few bright, many faint
+    siz[i] = 1.7 + mag*11;
+    /* colour temperature: mostly white-blue, a minority orange */
+    const t = rnd();
+    if (t < .10) C.setHSL(.07, .55, .62);
+    else if (t < .22) C.setHSL(.12, .35, .74);
+    else if (t < .78) C.setHSL(.58, .12, .88);
+    else C.setHSL(.60, .45, .82);
+    const b = .45 + mag*.55;
+    col[i*3] = C.r*b; col[i*3+1] = C.g*b; col[i*3+2] = C.b*b;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color', new THREE.BufferAttribute(col,3));
+  g.setAttribute('size', new THREE.BufferAttribute(siz,1));
+  const m = new THREE.ShaderMaterial({
+    uniforms: { map: {value: starSprite()} },
+    vertexShader: `
+      attribute float size; varying vec3 vC;
+      void main() {
+        vC = color;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = size * (300.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform sampler2D map; varying vec3 vC;
+      void main() {
+        vec4 t = texture2D(map, gl_PointCoord);
+        gl_FragColor = vec4(vC * t.rgb, t.a);
+      }`,
+    vertexColors: true, transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, fog: false,
+  });
+  return new THREE.Points(g, m);
+}
+
+let stars = null, nebula = null;
+function setSpace(on) {
+  if (on && !stars) {
+    stars = makeStars();
+    nebula = new THREE.Mesh(
+      new THREE.SphereGeometry(420, 64, 48),
+      new THREE.ShaderMaterial({vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+                                uniforms: {uSeed: {value: 3.7}},
+                                side: THREE.BackSide, fog: false,
+                                depthWrite: false}));
+    scene.add(nebula); scene.add(stars);
+  }
+  if (stars) { stars.visible = on; nebula.visible = on; }
+  grid.visible = !on;
+  floor.visible = !on;
+  scene.fog = on ? null : new THREE.Fog(0x0A0E14, 60, 140);
+  scene.background = new THREE.Color(on ? 0x020306 : 0x0A0E14);
+  /* a lone sun and deep shadow read as space; the editor wants a flatter fill */
+  hemi.intensity = on ? .42 : .9;
+  rim.intensity  = on ? .34 : .45;
+  key.intensity  = on ? 1.15 : 1.15;
+}
 
 /* orbit control (custom, damped) */
 const orbit = { th:.7, ph:1.15, r:20, tgt:new THREE.Vector3(), vth:0, vph:0, auto:true };
@@ -482,6 +697,7 @@ renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
 let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true, partsOn=false;
+let spaceOn=false, bloomOn=false;
 
 /* vertex colours = compartment tint (or plain hull) x baked occlusion */
 function paintColors(g) {
@@ -582,13 +798,19 @@ function buildShip(name, keepView) {
         if (at(+1) > at(-1)) n = [-n[0],-n[1],-n[2]];
         /* solve the plate's local outline onto this facet */
         const [a0,a1,a2] = pm.outline;
+        /* shrink the plate about its own centre: at full size it covers the whole
+           face and hides the frame it is supposed to be bolted onto */
+        const oc = pm.outline.reduce((s,p)=>[s[0]+p[0], s[1]+p[1]],[0,0])
+                             .map(v=>v/pm.outline.length);
         const d1=[a1[0]-a0[0], a1[1]-a0[1]], d2=[a2[0]-a0[0], a2[1]-a0[1]];
         const det = d1[0]*d2[1] - d1[1]*d2[0];
         if (!det) continue;
         const c = compColorOn ? new THREE.Color(COMP[f.comp].c)
                               : new THREE.Color(COMP[HULL_ID].c);
         for (const s of pm.sub) for (const i of s.idx) {
-          const lx = s.pos[i*3]-a0[0], ly = s.pos[i*3+1]-a0[1], lz = s.pos[i*3+2];
+          const lx = oc[0] + (s.pos[i*3]  -oc[0])*PLATE_SCALE - a0[0],
+                ly = oc[1] + (s.pos[i*3+1]-oc[1])*PLATE_SCALE - a0[1],
+                lz = s.pos[i*3+2];
           const t1 = ( lx*d2[1] - ly*d2[0]) / det;
           const t2 = (-lx*d1[1] + ly*d1[0]) / det;
           const w = [v0[0]+t1*E1[0]+t2*E2[0]+lz*n[0],
@@ -842,14 +1064,30 @@ btn('btnTex', on => { texOn=on;
   if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
     meshSolid.material.needsUpdate = true; } });
 btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, true); });
+btn('btnSpace', on => { spaceOn=on; setSpace(on); });
+btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); });
 btn('btnParts', on => { partsOn=on;
   for (const id of ['btnTex','btnCham']) document.getElementById(id).disabled = on;
   if (currentName) buildShip(currentName, true); });
 
 /* ════════ loop ════════ */
+/* ════════ bloom ════════
+   Selective by threshold rather than by layer: the hull sits well below it, so
+   only star cores and the brightest lit facets bleed. */
+let composer = null, bloomPass = null;
+function initBloom() {
+  if (composer) return;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), .55, .62, .93);
+  composer.addPass(bloomPass);
+  composer.setSize(w, h);
+}
 function resize() {
   const w=stage.clientWidth, h=stage.clientHeight;
   renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+  if (composer) composer.setSize(w,h);
 }
 addEventListener('resize', resize); resize();
 (function tick(){
@@ -863,7 +1101,7 @@ addEventListener('resize', resize); resize();
     orbit.tgt.y + orbit.r*Math.cos(orbit.ph),
     orbit.tgt.z + orbit.r*Math.sin(orbit.ph)*Math.cos(orbit.th));
   camera.lookAt(orbit.tgt);
-  renderer.render(scene, camera);
+  if (bloomOn && composer) composer.render(); else renderer.render(scene, camera);
 })();
 
 select('m12-centurion');
