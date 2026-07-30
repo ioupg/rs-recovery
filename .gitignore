@@ -2,6 +2,14 @@
 # Addresses and findings extracted from it are recorded in notes/.
 RedStarEditor.Debug.Win32.backup.exe
 
+# original 2014 data — tracked as source/original-data.zip; extract it into the
+# repo root to rerun the decoders (they expect this layout beside them)
+*.rsconstruction
+compiled/
+settings.bin
+_settings.bin
+ship-roster.csv
+
 # editor runtime state (settings.bin gets rewritten on every run; _settings.bin is the 2020 backup)
 _log.txt
 _err.txt

@@ -17,20 +17,27 @@ wing/module elements.
 
 | path | what |
 |---|---|
-| `*.rsconstruction` | original 2014 ship files (43 designs + `temp`) |
-| `ship-roster.csv` | design-stats table that came with the backup, used to validate the decode |
+| `source/original-data.zip` | the original 2014 backup: 43 ship designs + `temp`, the engine asset cache (`compiled/` — textures, shaders, part meshes), editor settings, and `ship-roster.csv` (design-stats table used to validate the decode) |
 | `parse_rsconstruction.py` | ship parser → JSON + viewer data |
 | `decode_meshes.py` | part-mesh decoder → catalogue, hull shapes, plates, module cages |
 | `recovered/*.json` | decoded ships and meshes |
 | `viewer/` | offline three.js viewer (self-contained; also what's deployed) |
 | `notes/` | working notes: inventory, format spec, results, screenshots |
-| `compiled/` | engine asset cache from the backup (textures, shaders, part meshes) |
 | `wrangler.jsonc` | Cloudflare Worker config for the deployment |
 
-The 33 MB debug executable the format was reversed from is gitignored; everything
-learned from it lives in `notes/02-format-final.md` and `notes/03-results.md`.
+The 33 MB debug executable the format was reversed from is not in the repo;
+everything learned from it lives in `notes/02-format-final.md` and
+`notes/03-results.md`, with disassembly addresses.
 
 ## Rebuild and deploy
+
+The decoders expect the original data extracted beside them, so first:
+
+```sh
+unzip source/original-data.zip          # or: Expand-Archive source/original-data.zip .
+```
+
+then:
 
 ```sh
 python parse_rsconstruction.py   # ships  -> recovered/*.json + viewer/ships.js

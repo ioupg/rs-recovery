@@ -3,6 +3,8 @@
 *.compiled       binary
 *.bin            binary
 *.png            binary
+*.zip            binary
+*.jpg            binary
 
 viewer/three.min.js linguist-vendored
 viewer/ships.js     linguist-generated
