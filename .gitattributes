@@ -1,0 +1,9 @@
+# Never let line-ending conversion touch the recovered/original binary data.
+*.rsconstruction binary
+*.compiled       binary
+*.bin            binary
+*.png            binary
+
+viewer/three.min.js linguist-vendored
+viewer/ships.js     linguist-generated
+recovered/*.json    linguist-generated

@@ -1,0 +1,11 @@
+# 33 MB debug build — the reverse-engineering source, kept locally only.
+# Addresses and findings extracted from it are recorded in notes/.
+RedStarEditor.Debug.Win32.backup.exe
+
+# editor runtime state (settings.bin gets rewritten on every run; _settings.bin is the 2020 backup)
+_log.txt
+_err.txt
+
+# cloudflare
+.wrangler/
+node_modules/
