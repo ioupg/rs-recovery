@@ -256,6 +256,34 @@ def outline(part):
     return h, abs(a)/2
 
 
+def pick_module_meshes(parts):
+    """Interior module cages.
+
+    Ten module names live in the exe (m1*engine, m1*power, m1*gyroscope,
+    m1*command, m1*habitable, m1*cargo, m1*weapon, m1*hangar, m1*slot, m1*tank)
+    and the archive holds a matching family of full-cell open cages textured with
+    system_colors.png — a palette, which is how the engine colour-codes a system.
+    These are the machinery that shows through the hull shell's window.
+
+    Which cage belongs to which system is NOT recoverable (the resource id is not
+    a hash of the name), so they are handed out in a stable order by resource id.
+    """
+    cands = []
+    for p in parts:
+        zs = [c for s in p['sub'] for c in s['pos'][2::3]]
+        if max(zs) - min(zs) < .6:
+            continue
+        if 'system_colors.png' not in p['tex']:
+            continue
+        if corner_set(p) != SHAPE_CORNERS[0]:
+            continue
+        cands.append(p)
+    cands.sort(key=lambda p: int(p['rid']))
+    print(f"  {len(cands)} cages: " +
+          ', '.join(f"{p['rid']}({p['tris']}t)" for p in cands))
+    return cands
+
+
 def pick_plate_meshes(parts, want_tris=(210, 14)):
     """Decoration plates laid over a frame face: thin, and their outline is the
     face polygon. One square and one triangular representative."""
@@ -274,6 +302,11 @@ def pick_plate_meshes(parts, want_tris=(210, 14)):
                 cands.append((p, h))
         if not cands:
             continue
+        cands.sort(key=lambda c: c[0]['tris'])
+        out[key + '_all'] = [{'rid': c[0]['rid'], 'tris': c[0]['tris'],
+                              'outline': [[round(x,4), round(y,4)] for x,y in c[1]],
+                              'sub': [{'pos': t['pos'], 'nrm': t['nrm'], 'idx': t['idx']}
+                                      for t in c[0]['sub']]} for c in cands]
         p, h = min(cands, key=lambda c: abs(c[0]['tris'] - target))
         out[key] = {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
                     'outline': [[round(x, 4), round(y, 4)] for x, y in h],
@@ -338,6 +371,8 @@ def main():
                      'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
                              for s in p['sub']]}
             for k, p in shapes.items()}
+    print("picking interior module cages:")
+    modules = pick_module_meshes(parts)
     print("picking decoration plates:")
     plates = pick_plate_meshes(parts)
     with open(os.path.join(base, 'viewer', 'shapes.js'), 'w') as f:
@@ -345,6 +380,11 @@ def main():
         json.dump(slim, f, separators=(',', ':'))
         f.write(';\nconst PLATE_MESH = ')
         json.dump(plates, f, separators=(',', ':'))
+        f.write(';\nconst MODULE_MESH = ')
+        json.dump([{'rid': p['rid'], 'tris': p['tris'],
+                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                            for s in p['sub']]} for p in modules],
+                  f, separators=(',', ':'))
         f.write(';\n')
     kb = os.path.getsize(os.path.join(base, 'viewer', 'shapes.js')) // 1024
     print(f"wrote viewer/shapes.js ({kb} KB) for {len(slim)}/4 shapes")

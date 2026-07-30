@@ -134,6 +134,7 @@
   <button id="btnParts" aria-pressed="false" title="Подставить извлечённые меши деталей вместо процедурных граней">детали</button>
   <button id="btnSpace" aria-pressed="false" title="Космос вместо сетки редактора">космос</button>
   <button id="btnBloom" aria-pressed="false" title="Свечение ярких участков">свечение</button>
+  <button id="btnPlate" title="Перебрать варианты накладных плит">плита</button>
 </header>
 <main>
   <nav id="registry" aria-label="Реестр кораблей"></nav>
@@ -166,6 +167,13 @@ const WING_COLOR = 0x51636F;
    window is measured from the mesh at decode time. The margin just keeps the
    plate edge off the rim so the two never fight for the same pixels. */
 const PLATE_MARGIN = .985;
+/* The hull shapes are shells, so without a backing you see straight through the
+   window of any face whose plate does not cover it. The filler is the plain
+   culled hull pushed a little way inside, which blocks the view without ever
+   reaching the surface the detail meshes occupy. */
+const FILL_INSET = .045;
+/* interior module cage, shrunk to clear the shell it sits inside */
+const MODULE_SCALE = .88;
 
 /* faces per shape as corner-index loops (validated vs exe plate tables) */
 const FACES = {
@@ -700,6 +708,15 @@ renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *
 let group=null, edgeLines=null, meshSolid=null;
 let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true, partsOn=false;
 let spaceOn=false, bloomOn=false;
+/* which decoration plate to use — the archive has 11 square candidates and the
+   engine's choice is not recoverable, so it is exposed rather than hard-coded */
+let plateVariant = 8;
+function setPlate(i) {
+  plateVariant = i;
+  const v = PLATE_MESH.quad_all[i % PLATE_MESH.quad_all.length];
+  if (currentName) buildShip(currentName, true);
+  return `plate ${i}: ${v.rid} (${v.tris} tris)`;
+}
 
 /* vertex colours = compartment tint (or plain hull) x baked occlusion */
 function paintColors(g) {
@@ -781,6 +798,59 @@ function buildShip(name, keepView) {
         }
       }
     }
+    /* interior module cage per cube — the machinery you see through the window.
+       Cage-to-system mapping is not recoverable, so cages are handed out by
+       compartment id over the family in a stable order. */
+    if (typeof MODULE_MESH !== 'undefined' && MODULE_MESH.length) {
+      for (const cb of ship.cubes) {
+        if (cb.comp === HULL_ID) continue;              // plain hull carries none
+        const mm = MODULE_MESH[cb.comp % MODULE_MESH.length];
+        const M = ORIENTATIONS[cb.o];
+        const own = `${cb.x},${cb.y},${cb.z}`;
+        const c = compColorOn ? new THREE.Color(COMP[cb.comp].c)
+                              : new THREE.Color(COMP[HULL_ID].c);
+        for (const sm3 of mm.sub) for (const i of sm3.idx) {
+          const p0 = [(sm3.pos[i*3]-.5)*MODULE_SCALE,
+                      (sm3.pos[i*3+1]-.5)*MODULE_SCALE,
+                      (sm3.pos[i*3+2]-.5)*MODULE_SCALE];
+          const w = [M[0]*p0[0]+M[1]*p0[1]+M[2]*p0[2]+.5+cb.x,
+                     M[3]*p0[0]+M[4]*p0[1]+M[5]*p0[2]+.5+cb.y,
+                     M[6]*p0[0]+M[7]*p0[1]+M[8]*p0[2]+.5+cb.z];
+          const n0 = [sm3.nrm[i*3], sm3.nrm[i*3+1], sm3.nrm[i*3+2]];
+          const n = [M[0]*n0[0]+M[1]*n0[1]+M[2]*n0[2],
+                     M[3]*n0[0]+M[4]*n0[1]+M[5]*n0[2],
+                     M[6]*n0[0]+M[7]*n0[1]+M[8]*n0[2]];
+          pos.push(...w); nrm.push(...n);
+          const a3 = (aoOn ? vertexAO(w, n, occ2, own) : 1) * .78;
+          col.push(c.r*a3, c.g*a3, c.b*a3);
+        }
+      }
+    }
+
+    /* filler: the procedural hull, offset inward, sitting behind everything */
+    {
+      const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+      const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
+      for (const f of kept) {
+        let n = norm(cross(norm(sub(f.verts[1],f.verts[0])), sub(f.verts[2],f.verts[0])));
+        const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
+                           .map(x=>x/f.verts.length);
+        const at = sg => occ2.get(`${Math.floor(cen[0]+sg*.25*n[0])},${Math.floor(cen[1]+sg*.25*n[1])},${Math.floor(cen[2]+sg*.25*n[2])}`) || 0;
+        if (at(+1) > at(-1)) n = [-n[0],-n[1],-n[2]];
+        const vs = f.verts.map(v => [v[0]-n[0]*FILL_INSET,
+                                     v[1]-n[1]*FILL_INSET,
+                                     v[2]-n[2]*FILL_INSET]);
+        const base = compColorOn ? new THREE.Color(COMP[f.comp].c)
+                                 : new THREE.Color(COMP[HULL_ID].c);
+        for (let i=1; i<vs.length-1; i++) for (const k of [0,i,i+1]) {
+          pos.push(...vs[k]); nrm.push(...n);
+          const a2 = (aoOn ? vertexAO(vs[k], n, occ2, null) : 1) * .55;
+          col.push(base.r*a2, base.g*a2, base.b*a2);
+        }
+      }
+    }
+
     /* decoration plates ride over the frame's exterior faces. Each plate mesh is
        authored on a unit face at z=0 hanging back to -depth, so it maps onto a
        facet through the affine frame the facet itself defines — which also means
@@ -790,7 +860,10 @@ function buildShip(name, keepView) {
       const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
       const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
       for (const f of kept) {
-        const pm = PLATE_MESH[f.verts.length === 4 ? 'quad' : 'tri'];
+        const pm = f.verts.length === 4
+          ? (PLATE_MESH.quad_all ? PLATE_MESH.quad_all[plateVariant % PLATE_MESH.quad_all.length]
+                                 : PLATE_MESH.quad)
+          : PLATE_MESH.tri;
         if (!pm) continue;
         const v0 = f.verts[0], E1 = sub(f.verts[1], v0), E2 = sub(f.verts[2], v0);
         let n = norm(cross(norm(E1), E2));
@@ -1068,6 +1141,11 @@ btn('btnTex', on => { texOn=on;
   if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
     meshSolid.material.needsUpdate = true; } });
 btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, true); });
+document.getElementById('btnPlate').onclick = () => {
+  const n = PLATE_MESH.quad_all ? PLATE_MESH.quad_all.length : 1;
+  const v = setPlate((plateVariant + 1) % n);
+  document.getElementById('btnPlate').textContent = 'плита ' + (plateVariant+1) + '/' + n;
+};
 btn('btnSpace', on => { spaceOn=on; setSpace(on); });
 btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); });
 btn('btnParts', on => { partsOn=on;
