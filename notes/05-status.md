@@ -104,7 +104,6 @@ parts · space · bloom · plate (cycles the 11 plate candidates).
 | constant | now | what it does |
 |---|---|---|
 | `PLATE_MARGIN` | `.985` | keeps the plate edge off the shell rim |
-| `PLATE_LIFT` | `.02` | stand-off along the facet normal; plates are authored face-at-z=0 with struts to −depth, and dead flush they read as sunken panes |
 | `FILL_INSET` | `.045` | how far the solid backing sits inside the shells |
 | `MODULE_SCALE` | `.88` | interior cage size within the shell |
 | `AO_POWER/DEPTH/RANGE` | `1.8 / .86 / .42` | occlusion falloff; RANGE normalises to where the raw ratio saturates |

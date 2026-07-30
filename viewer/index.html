@@ -167,11 +167,6 @@ const WING_COLOR = 0x51636F;
    window is measured from the mesh at decode time. The margin just keeps the
    plate edge off the rim so the two never fight for the same pixels. */
 const PLATE_MARGIN = .985;
-/* Plates are authored with their face at z=0 and mounting struts hanging to
-   -depth. Mounted dead flush the face is coplanar with the shell rim and reads
-   as sunken into the window; a small stand-off sets it just proud of the frame
-   while the struts stay hidden inside. */
-const PLATE_LIFT = .02;
 /* The hull shapes are shells, so without a backing you see straight through the
    window of any face whose plate does not cover it. The filler is the plain
    culled hull pushed a little way inside, which blocks the view without ever
@@ -887,9 +882,14 @@ function buildShip(name, keepView) {
     }
 
     /* decoration plates ride over the frame's exterior faces. Each plate mesh is
-       authored on a unit face at z=0 hanging back to -depth, so it maps onto a
-       facet through the affine frame the facet itself defines — which also means
-       plates inherit the facet culling for free. */
+       authored on a unit face with its mounting back at z=0 and the relief
+       extending to -z (the same D3D-handed convention as the winding), so it is
+       mounted MIRRORED along the facet normal — back on the face plane, relief
+       standing out of the hull. Mapped as-is the relief would sink into the
+       window and only the flat back would show. The mirror flips handedness, so
+       position z and normal z are negated and each triangle is rewound. Plates
+       map through the affine frame the facet itself defines — which also means
+       they inherit the facet culling for free. */
     if (typeof PLATE_MESH !== 'undefined') {
       const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
       const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
@@ -918,10 +918,12 @@ function buildShip(name, keepView) {
         if (!det) continue;
         const c = compColorOn ? new THREE.Color(COMP[f.comp].c)
                               : new THREE.Color(COMP[HULL_ID].c);
-        for (const s of pm.sub) for (const i of s.idx) {
+        for (const s of pm.sub)
+        for (let t=0; t<s.idx.length; t+=3)
+        for (const i of [s.idx[t], s.idx[t+2], s.idx[t+1]]) {
           const lx = oc[0] + (s.pos[i*3]  -oc[0])*k - a0[0],
                 ly = oc[1] + (s.pos[i*3+1]-oc[1])*k - a0[1],
-                lz = s.pos[i*3+2] + PLATE_LIFT;
+                lz = -s.pos[i*3+2];
           const t1 = ( lx*d2[1] - ly*d2[0]) / det;
           const t2 = (-lx*d1[1] + ly*d1[0]) / det;
           const w = [v0[0]+t1*E1[0]+t2*E2[0]+lz*n[0],
@@ -929,7 +931,7 @@ function buildShip(name, keepView) {
                      v0[2]+t1*E1[2]+t2*E2[2]+lz*n[2]];
           const m1 = ( s.nrm[i*3]*d2[1] - s.nrm[i*3+1]*d2[0]) / det;
           const m2 = (-s.nrm[i*3]*d1[1] + s.nrm[i*3+1]*d1[0]) / det;
-          const nz = s.nrm[i*3+2];
+          const nz = -s.nrm[i*3+2];
           const wn = norm([m1*E1[0]+m2*E2[0]+nz*n[0],
                            m1*E1[1]+m2*E2[1]+nz*n[1],
                            m1*E1[2]+m2*E2[2]+nz*n[2]]);
