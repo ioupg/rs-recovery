@@ -871,9 +871,13 @@ function buildShip(name, keepView) {
         const vs = f.verts.map(v => [v[0]-n[0]*FILL_INSET,
                                      v[1]-n[1]*FILL_INSET,
                                      v[2]-n[2]*FILL_INSET]);
+        /* emit triangles wound with the outward normal, whichever way the loop
+           runs, so the explicit normal is not flipped by double-sided shading */
+        const w0 = cross(sub(vs[1],vs[0]), sub(vs[2],vs[0]));
+        const rev = w0[0]*n[0]+w0[1]*n[1]+w0[2]*n[2] < 0;
         const base = compColorOn ? new THREE.Color(COMP[f.comp].c)
                                  : new THREE.Color(COMP[HULL_ID].c);
-        for (let i=1; i<vs.length-1; i++) for (const k of [0,i,i+1]) {
+        for (let i=1; i<vs.length-1; i++) for (const k of (rev ? [0,i+1,i] : [0,i,i+1])) {
           pos.push(...vs[k]); nrm.push(...n);
           const a2 = (aoOn ? vertexAO(vs[k], n, occ2, null) : 1) * .55;
           col.push(base.r*a2, base.g*a2, base.b*a2);
@@ -900,11 +904,17 @@ function buildShip(name, keepView) {
                                  : PLATE_MESH.quad)
           : PLATE_MESH.tri;
         if (!pm) continue;
-        const v0 = f.verts[0], E1 = sub(f.verts[1], v0), E2 = sub(f.verts[2], v0);
-        let n = norm(cross(norm(E1), E2));
+        const nw = norm(cross(norm(sub(f.verts[1],f.verts[0])), sub(f.verts[2],f.verts[0])));
         const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
                            .map(x=>x/f.verts.length);
-        n = orient(n, cen, f, occ2);
+        const n = orient(nw, cen, f, occ2);
+        /* the loop may wind either way; the mirror mounting needs a right-handed
+           frame, or it mirrors the plate a second time in-plane and the winding
+           comes out inverted on exactly those facets. Walk the loop backwards
+           when its winding normal opposes the outward one. */
+        const fv = (nw[0]*n[0]+nw[1]*n[1]+nw[2]*n[2] < 0)
+                 ? f.verts.slice().reverse() : f.verts;
+        const v0 = fv[0], E1 = sub(fv[1], v0), E2 = sub(fv[2], v0);
         /* solve the plate's local outline onto this facet */
         const [a0,a1,a2] = pm.outline;
         /* shrink the plate about its own centre: at full size it covers the whole
