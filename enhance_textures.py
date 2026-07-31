@@ -52,6 +52,11 @@ AI_PROMPT = (
     "new objects, no text, no borders."
 )
 
+# Textures the AI stage must never touch: the model redraws rather than
+# upscales, which corrupts strictly geometric patterns (stripe pitch/angle)
+# and semantic colours (the system palette IS data).
+AI_SKIP = {"bordersDusty.bmp", "system_colors.png"}
+
 HEIGHT_BLUR_SIGMA = 1.2
 NORMAL_STRENGTH = 1.6
 
@@ -201,7 +206,10 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
     """Crop the central quarter (half-width x half-height, centered) of the
     returned image, then resample to the expected 4x target size so the
     downstream pipeline always sees a consistent scale factor regardless of
-    exactly what the model returned."""
+    exactly what the model returned. The central quarter of a 2x2 tiling is
+    the original tile PHASE-SHIFTED by half a period, so the result is rolled
+    back by half its size — archive UVs were authored against the original
+    phase and a half-tile offset reads as a visible wrap on every face."""
     w, h = img.size
     cw, ch = max(1, w // 2), max(1, h // 2)
     x0 = (w - cw) // 2
@@ -209,7 +217,9 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
     cropped = img.crop((x0, y0, x0 + cw, y0 + ch))
     if cropped.size != target_size:
         cropped = cropped.resize(target_size, Image.Resampling.LANCZOS)
-    return cropped
+    arr = np.array(cropped.convert("RGB"))
+    arr = np.roll(arr, (arr.shape[0] // 2, arr.shape[1] // 2), axis=(0, 1))
+    return Image.fromarray(arr)
 
 
 WING_SOLAR_PROMPT = (
@@ -307,6 +317,9 @@ def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None,
     ai_note = ""
     diffuse_img = orig_img
 
+    if archive_name in AI_SKIP:
+        use_ai = False
+        maps_only = False                     # always re-copy the pristine original
     if maps_only and out_diffuse.exists():
         # regenerate _n/_r only, keeping the (possibly AI-upscaled) diffuse
         diffuse_img = Image.open(out_diffuse).convert("RGB")
