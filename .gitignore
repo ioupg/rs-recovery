@@ -20,3 +20,7 @@ node_modules/
 
 # playwright-mcp scratch output
 .playwright-mcp/
+
+# editor: generated data mirror (rebuilt by the vite plugin on every dev/build)
+editor/public/data/
+# editor: build output — committed only at deploy milestones via viewer/editor
