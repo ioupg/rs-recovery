@@ -325,8 +325,13 @@ def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None,
     # Deriving gradients on 4x-upscaled pixels makes low-res sources (64²
     # gratings, 32² balk) read as chunky bas-relief. Compute the maps at the
     # source resolution and upscale them to match the diffuse: structure stays,
-    # harshness goes; the AI detail still lives in the diffuse itself.
-    base_arr = np.array(orig_img.convert("RGB"))
+    # harshness goes. CRITICAL: the base must be the (possibly AI-upscaled)
+    # diffuse DOWNSCALED to source resolution, never the original — the AI
+    # redraws fine features, so maps derived from the original would not line
+    # up with the rivets/scratches actually visible in the diffuse.
+    base_img = (diffuse_img.resize(orig_size, Image.LANCZOS)
+                if diffuse_img.size != orig_size else diffuse_img)
+    base_arr = np.array(base_img.convert("RGB"))
     height = make_height(base_arr)
     dx, dy = sobel_wrap(height)
     normal_rgb = make_normal_map(dx, dy, NORMAL_STRENGTH)
