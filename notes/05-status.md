@@ -1,7 +1,37 @@
 # Status and handoff — start here
 
 **Live:** https://rs.ioupg.com (fleet) · https://rs.ioupg.com/parts (mesh catalogue)
+· https://rs.ioupg.com/editor/ (constructor)
 **Repo:** working tree clean, deployed build matches the viewer at HEAD.
+
+## The constructor (2026-07-30)
+
+`editor/` is a Vite + TypeScript + three r185 app deployed to `/editor/` —
+a full ship constructor built on the recovered format. The original viewer
+is untouched. Structure and contracts: `editor/ARCHITECTURE.md`.
+
+- **Render modes** box / plate / mesh — the geometry is a typed port of the
+  viewer with **triangle-for-triangle parity** (positions, shades, atlas UVs,
+  normals, edges) verified against the reference on three fleet ships.
+- **PBR materials**: per-slot registry (10 compartments + wing),
+  MeshPhysicalMaterial + RoomEnvironment; live material editor tab; overrides
+  embed in exported JSON and carry into GLB.
+- **Editing**: add/erase/paint/wing/select-move tools, 24-orientation stepper,
+  undo/redo, validation (overlap / wing anchoring / connectivity).
+- **Symmetry**: mirror across a grid-x plane (auto-detected, 39/43 fleet ships
+  mirror on x). Orientation reflection = `S·R·S·R_t` with an involutive mirror
+  symmetry `t` per solid — proven an involution, test-covered
+  (`src/core/tables.ts`, `symmetry.test.ts`).
+- **IO**: fleet load, JSON import/export (byte-exact round-trip of all 43
+  ships tested; editor-created cubes get majority-vote plate slots per
+  (orientation, slot) from the fleet), GLB export. Binary .rsconstruction
+  writing: not done, format is fully known if wanted.
+- **Data**: a Vite plugin regenerates `editor/public/data/*.json` from
+  `viewer/ships.js` + `viewer/shapes.js` on every dev/build, so the python
+  pipeline stays the single source of truth.
+
+Workflow: `cd editor && npm run dev` · `npm test` (109 vitest) ·
+`npm run build` (→ `viewer/editor/`) then `wrangler deploy` from the root.
 
 ---
 
