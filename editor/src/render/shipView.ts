@@ -12,7 +12,7 @@ import type { GameData } from '../data/loader';
 import type { RenderSettings } from '../editor/state';
 import type { SceneCtx } from './scene';
 import type { MaterialCache } from './materialCache';
-import { NAKED_SCALE, buildShipGeometry } from './geometry';
+import { NAKED_PICK_SCALE, buildShipGeometry } from './geometry';
 import { buildPickGeometry } from './pick';
 import type { BuildOptions, PickTri } from './geometryTypes';
 
@@ -136,7 +136,7 @@ export class ShipView {
       this.edgeLines = lines;
     }
 
-    const picked = buildPickGeometry(doc, this.options.mode === 'naked' ? NAKED_SCALE : 1);
+    const picked = buildPickGeometry(doc, this.options.mode === 'naked' ? NAKED_PICK_SCALE : 1);
     const pickMesh = new THREE.Mesh(picked.geometry, new THREE.MeshBasicMaterial());
     pickMesh.visible = false;
     this.sceneCtx.shipRoot.add(pickMesh);
