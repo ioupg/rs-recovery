@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { copyFileSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,6 +39,16 @@ function rsDataPlugin(): Plugin {
     mkdirSync(texDst, { recursive: true });
     for (const f of readdirSync(texSrc))
       if (f.endsWith('.png')) copyFileSync(resolve(texSrc, f), resolve(texDst, f));
+    /* enhanced PBR layers (normal/roughness maps, parallel recovery pipeline)
+       override same-named diffuse .png files; absence is normal — that
+       pipeline may not have run yet. */
+    const pbrSrc = resolve(root, '../recovered/textures-pbr');
+    if (existsSync(pbrSrc)) {
+      for (const f of readdirSync(pbrSrc))
+        if (f.endsWith('.png')) copyFileSync(resolve(pbrSrc, f), resolve(texDst, f));
+      const manifest = resolve(pbrSrc, 'manifest.json');
+      if (existsSync(manifest)) copyFileSync(manifest, resolve(texDst, 'manifest.json'));
+    }
   };
   return {
     name: 'rs-data',

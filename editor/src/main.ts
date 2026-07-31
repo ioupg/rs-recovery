@@ -13,6 +13,7 @@ import { EditorState } from './editor/state';
 import { EditorController } from './editor/controller';
 import { createScene } from './render/scene';
 import { MaterialCache } from './render/materialCache';
+import { initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
 import { Viewports } from './render/viewports';
 import { ShapePreview } from './render/shapePreview';
@@ -38,6 +39,7 @@ function download(name: string, data: BlobPart, type: string): void {
 async function init(): Promise<void> {
   const root = document.getElementById('app')!;
   const data = await loadGameData();
+  await initTextureMaps();
 
   const state = new EditorState();
   const model = new ShipModel(emptyDoc());

@@ -4,7 +4,7 @@
 import type * as THREE from 'three';
 import type { MaterialSlot, Vec3 } from '../core/types';
 
-export type RenderMode = 'box' | 'plate' | 'mesh';
+export type RenderMode = 'box' | 'plate' | 'mesh' | 'naked';
 
 /** decoration-mesh choice per recovered plate type (the type assignment per
     face is exact data; only which archive mesh dresses each type is a choice) */

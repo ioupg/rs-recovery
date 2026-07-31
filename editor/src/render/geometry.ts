@@ -13,7 +13,8 @@ import * as THREE from 'three';
 import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
 import { MATERIAL_SLOTS } from '../core/types';
 import {
-  AXIS_FACE_KIND, HULL_COMP, ORIENTATIONS, SLOT_AXES, WING_RING, corner, plateFaceDir, rot,
+  AXIS_FACE_KIND, FACES, HULL_COMP, ORIENTATIONS, SHAPE_CENTROID, SLOT_AXES, WING_RING,
+  corner, plateFaceDir, rot,
 } from '../core/tables';
 import { compSlot } from '../core/materials';
 import type { GameData, PlateMeshEntry } from '../data/loader';
@@ -432,9 +433,49 @@ function addWingSkins(
   return skinned;
 }
 
+/** cell shrink factor of naked mode — gaps wide enough to see and pick
+    interior cubes, narrow enough that the lattice still reads as the ship */
+export const NAKED_SCALE = 0.78;
+
 export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptions): BuiltShip {
   /* hull only — attached elements never occlude */
   const occ = occupancyOf(doc.cubes);
+
+  if (opts.mode === 'naked') {
+    /* every cube as a shrunken solid about its cell centre — nothing culled,
+       so the recovered interior structure is visible and pickable through the
+       gaps. AO/atlas off: clarity is the point. */
+    const b = new SlotBuckets(false);
+    for (const cb of doc.cubes) {
+      const loops = FACES[cb.shape as ShapeId];
+      if (!loops || !ORIENTATIONS[cb.o]) continue;
+      const c = rot(cb.o, SHAPE_CENTROID[cb.shape as ShapeId]);
+      const scS: V3 = [
+        (c[0] - 0.5) * NAKED_SCALE + 0.5 + cb.x,
+        (c[1] - 0.5) * NAKED_SCALE + 0.5 + cb.y,
+        (c[2] - 0.5) * NAKED_SCALE + 0.5 + cb.z,
+      ];
+      const slot = slotOf(cb.comp);
+      for (const loop of loops) {
+        const vs = loop.map(ci => {
+          const p = rot(cb.o, corner(ci));
+          return [
+            (p[0] - 0.5) * NAKED_SCALE + 0.5 + cb.x,
+            (p[1] - 0.5) * NAKED_SCALE + 0.5 + cb.y,
+            (p[2] - 0.5) * NAKED_SCALE + 0.5 + cb.z,
+          ] as V3;
+        });
+        const cen = centroid(vs);
+        let n = facetNormal(vs);
+        if (dot(n, sub(cen, scS)) < 0) n = [-n[0], -n[1], -n[2]];
+        b.fan(slot, vs, n, () => 1);
+      }
+    }
+    addWings(b, doc, occ, false, false);
+    const { geometry, groupSlots, groupTex } = b.build();
+    return { geometry, groupSlots, groupTex, edges: geometry, edgesThreshold: 25 };
+  }
+
   const kept = cullFacets(collectFacets(doc.cubes));
 
   if (opts.mode === 'mesh') {

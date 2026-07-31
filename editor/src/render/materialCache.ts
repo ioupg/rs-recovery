@@ -11,7 +11,7 @@ import type { MaterialDef, MaterialSlot } from '../core/types';
 import type { MaterialStore } from '../core/materials';
 import type { Unsubscribe } from '../core/types';
 import { getAtlasTexture } from './atlas';
-import { getPartTexture } from './textureCache';
+import { getPartMaps } from './textureCache';
 
 export interface MaterialVariant {
   /** procedural compartment atlas as .map (plate mode) */
@@ -43,8 +43,15 @@ export class MaterialCache {
         side: THREE.DoubleSide,
         flatShading: false,
       });
-      if (v.map) m.map = getPartTexture(v.map);
-      else if (v.textured) m.map = getAtlasTexture();
+      if (v.map) {
+        const maps = getPartMaps(v.map);
+        m.map = maps.map;
+        if (maps.normalMap) {
+          m.normalMap = maps.normalMap;
+          m.normalScale.set(0.65, 0.65);
+        }
+        if (maps.roughnessMap) m.roughnessMap = maps.roughnessMap;
+      } else if (v.textured) m.map = getAtlasTexture();
       this.apply(m, this.store.get(slot), v);
       e = { slot, v, m };
       this.cache.set(key, e);

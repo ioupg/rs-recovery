@@ -13,10 +13,11 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'plate', label: 'plate', key: '6' },
 ];
 
-const RENDER_MODES: { id: 'box' | 'plate' | 'mesh'; label: string }[] = [
+const RENDER_MODES: { id: 'box' | 'plate' | 'mesh' | 'naked'; label: string }[] = [
   { id: 'box', label: 'box' },
   { id: 'plate', label: 'plate' },
   { id: 'mesh', label: 'mesh' },
+  { id: 'naked', label: 'naked' },
 ];
 
 type ToggleKey = 'edges' | 'compColors' | 'textures' | 'chamfer' | 'ao' | 'plates';

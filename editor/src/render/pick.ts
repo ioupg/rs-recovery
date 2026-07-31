@@ -23,6 +23,8 @@ function axisExit(n: V3): Vec3 | null {
 
 export function buildPickGeometry(
   doc: ShipDoc,
+  /** shrink cells about their centres (naked mode) so rays reach the interior */
+  scale = 1,
 ): { geometry: THREE.BufferGeometry; tris: PickTri[] } {
   /* only feeds orient()'s probe fallback; every facet here carries an `sc` */
   const occ = occupancyOf(doc.cubes);
@@ -40,12 +42,20 @@ export function buildPickGeometry(
     const loops = FACES[cb.shape as ShapeId];
     if (!loops || !ORIENTATIONS[cb.o]) continue;
     const c = rot(cb.o, SHAPE_CENTROID[cb.shape as ShapeId]);
-    const sc: V3 = [c[0] + cb.x, c[1] + cb.y, c[2] + cb.z];
+    const sc: V3 = [
+      (c[0] - 0.5) * scale + 0.5 + cb.x,
+      (c[1] - 0.5) * scale + 0.5 + cb.y,
+      (c[2] - 0.5) * scale + 0.5 + cb.z,
+    ];
     loops.forEach((loop, faceIndex) => {
       if (loop.length < 3) return;
       const vs = loop.map(ci => {
         const p = rot(cb.o, corner(ci));
-        return [p[0] + cb.x, p[1] + cb.y, p[2] + cb.z] as V3;
+        return [
+          (p[0] - 0.5) * scale + 0.5 + cb.x,
+          (p[1] - 0.5) * scale + 0.5 + cb.y,
+          (p[2] - 0.5) * scale + 0.5 + cb.z,
+        ] as V3;
       });
       const n = orient(facetNormal(vs), centroid(vs), { sc }, occ);
       emit(vs, { kind: 'cube', uid: cb.uid, faceIndex, exit: axisExit(n) });
