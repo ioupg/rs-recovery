@@ -37,7 +37,12 @@ export interface ShipEntry {
 export interface GameData {
   ships: Record<string, ShipEntry>;
   shapeMesh: Record<string, ShapeMeshEntry>;
-  plateMesh: { quad_all: PlateMeshEntry[]; tri?: PlateMeshEntry; quad?: PlateMeshEntry };
+  plateMesh: {
+    quad_all: PlateMeshEntry[];
+    tri_all?: PlateMeshEntry[];
+    tri?: PlateMeshEntry;
+    quad?: PlateMeshEntry;
+  };
   moduleMesh: ModuleMeshEntry[];
   /** majority archive value per (cube orientation, slot index) — used to emit
       plausible slots for cubes created in the editor */
@@ -50,27 +55,25 @@ async function json<T>(name: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** The per-slot byte is determined by (cube orientation, slot index) — the
-    observed variation is presence/absence only. Take the majority over the
-    whole fleet as the default for editor-created cubes. */
+/** Default plate slots for editor-created cubes: plate orientation by fleet
+    majority per (cube orientation, slot index); plates PRESENT everywhere —
+    presence is decoration state, and a fresh cube ships fully plated. */
 export function computeSlotDefaults(ships: Record<string, ShipEntry>): PlateSlot[][] {
-  const votes = new Map<string, Map<string, number>>();
+  const votes = new Map<string, Map<number, number>>();
   for (const ship of Object.values(ships))
     for (const c of ship.cubes)
       c.slots.forEach((s, i) => {
         const k = `${c.o},${i}`;
-        const v = `${s.o},${s.a},${s.b}`;
         const m = votes.get(k) ?? votes.set(k, new Map()).get(k)!;
-        m.set(v, (m.get(v) ?? 0) + 1);
+        m.set(s.o, (m.get(s.o) ?? 0) + 1);
       });
   const out: PlateSlot[][] = [];
   for (let o = 0; o < 24; o++) {
     out[o] = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       const m = votes.get(`${o},${i}`);
-      if (!m) { out[o][i] = { o: 0, a: 0, b: 0 }; continue; }
-      const best = [...m.entries()].sort((a, b) => b[1] - a[1])[0][0].split(',').map(Number);
-      out[o][i] = { o: best[0], a: best[1], b: best[2] };
+      const best = m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : 0;
+      out[o][i] = { o: best, p: 1, f: 0 };
     }
   }
   return out;

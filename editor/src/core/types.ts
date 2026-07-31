@@ -6,9 +6,12 @@ export type Vec3 = readonly [number, number, number];
 /** 0 cube · 1 corner-cut (k7) · 2 wedge (k6) · 3 tetra (k4) */
 export type ShapeId = 0 | 1 | 2 | 3;
 
-/** Per-face decoration plate slot as stored in the archive: orientation byte
-    plus two flags whose observed variation is presence/absence only. */
-export interface PlateSlot { o: number; a: number; b: number }
+/** Per-face decoration plate slot, layout settled 2026-07-31: seven slots per
+    cube — six axis faces in CUBE-LOCAL order [+x,−x,+y,−y,+z,−z] plus the
+    shape's non-axis face (k7 cut / k6 slope / k4 diagonal) as slot 6.
+    o = plate orientation (0..23), p = plate present, f = unexplained flag
+    preserved for round-trip. */
+export interface PlateSlot { o: number; p: number; f: number }
 
 export interface Cube {
   /** editor-internal identity, stable across moves/patches; never exported */

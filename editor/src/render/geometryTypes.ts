@@ -6,13 +6,25 @@ import type { MaterialSlot, Vec3 } from '../core/types';
 
 export type RenderMode = 'box' | 'plate' | 'mesh';
 
+/** decoration-mesh choice per recovered plate type (the type assignment per
+    face is exact data; only which archive mesh dresses each type is a choice) */
+export interface PlateVariants {
+  /** p1111 axis quads — index into plateMesh.quad_all */
+  quad: number;
+  /** p2121 slope rectangles — index into plateMesh.quad_all (sheared) */
+  slope: number;
+  /** p121 axis triangles — index into plateMesh.tri_all */
+  tri: number;
+  /** p222A/V cut faces — index into plateMesh.tri_all (sheared) */
+  eq: number;
+}
+
 export interface BuildOptions {
   mode: RenderMode;
   chamfer: boolean;
   ao: boolean;
   textures: boolean;
-  /** index into plateMesh.quad_all (mesh mode decoration plates) */
-  plateVariant: number;
+  plateVariants: PlateVariants;
 }
 
 export interface BuiltShip {

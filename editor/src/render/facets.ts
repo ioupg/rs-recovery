@@ -3,7 +3,7 @@
    Three.js-free on purpose: the same facets feed geometry, chamfer and pick. */
 
 import type { Cube, ShapeId } from '../core/types';
-import { FACES, ORIENTATIONS, SHAPE_CENTROID, corner, rot } from '../core/tables';
+import { FACES, FACE_SLOT, ORIENTATIONS, SHAPE_CENTROID, corner, rot } from '../core/tables';
 import type { Occupancy } from './ao';
 
 export type V3 = [number, number, number];
@@ -44,6 +44,11 @@ export interface Facet {
   k: string;
   /** chamfer strip or corner patch: flat atlas tone, no edge overlay */
   plain?: boolean;
+  /** recovered decoration: a plate is mounted on this face (slot presence);
+      absent on chamfer strips */
+  plate?: boolean;
+  /** the face is the shape's non-axis face (k7 cut / k6 slope / k4 diagonal) */
+  nonAxis?: boolean;
 }
 
 const keyOf = (vs: readonly V3[]): string => vs.map(v => v.join(',')).sort().join('|');
@@ -56,13 +61,19 @@ export function collectFacets(cubes: readonly Cube[]): Facet[] {
     if (!loops || !ORIENTATIONS[cb.o]) continue;
     const c = rot(cb.o, SHAPE_CENTROID[cb.shape as ShapeId]);
     const sc: V3 = [c[0] + cb.x, c[1] + cb.y, c[2] + cb.z];
-    for (const loop of loops) {
+    loops.forEach((loop, fi) => {
       const verts = loop.map(ci => {
         const p = rot(cb.o, corner(ci));
         return [p[0] + cb.x, p[1] + cb.y, p[2] + cb.z] as V3;
       });
-      faces.push({ verts, comp: cb.comp, shape: cb.shape as ShapeId, sc, k: keyOf(verts) });
-    }
+      const slot = FACE_SLOT[cb.shape as ShapeId][fi];
+      /* cubes without slots (editor-created, defaults pending) are fully plated */
+      const plate = cb.slots?.[slot] ? cb.slots[slot].p !== 0 : true;
+      faces.push({
+        verts, comp: cb.comp, shape: cb.shape as ShapeId, sc, k: keyOf(verts),
+        plate, nonAxis: slot === 6,
+      });
+    });
   }
   return faces;
 }

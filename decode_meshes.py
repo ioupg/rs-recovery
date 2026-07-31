@@ -302,6 +302,9 @@ def pick_plate_meshes(parts, want_tris=(210, 14)):
     """Decoration plates laid over a frame face: thin, and their outline is the
     face polygon. One square and one triangular representative."""
     out = {}
+    # quad = p1111 (unit square) · tri = p121 (half-square). p2121/p222A/V have
+    # no dedicated meshes in the archive — the affine face frame shears these
+    # onto the slope/cut faces, as the reference viewer validated.
     for key, target, wanted_area, sides in (('quad', want_tris[0], 1.0, 4),
                                             ('tri', want_tris[1], .5, 3)):
         cands = []

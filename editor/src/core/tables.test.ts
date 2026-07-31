@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FACES, ORIENTATIONS, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
+  FACES, FACE_SLOT, ORIENTATIONS, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
   WING_RING, corner, rot, rotateOrient,
 } from './tables';
 import type { ShapeId } from './types';
@@ -34,6 +34,21 @@ describe('tables', () => {
     for (const k of Object.keys(WING_RING).map(Number))
       for (let o = 0; o < 24; o++)
         expect(REFLECT_X_WING[k][REFLECT_X_WING[k][o]]).toBe(o);
+  });
+
+  it('face-slot mapping covers every face and matches the exe plate census', () => {
+    // slot assignments: every axis face lands on a distinct axis slot; exactly
+    // one non-axis face for k7/k6/k4; none for the cube
+    const nonAxis: Record<number, number> = { 0: 0, 1: 1, 2: 1, 3: 1 };
+    for (const s of Object.keys(FACES).map(Number) as ShapeId[]) {
+      const slots = FACE_SLOT[s];
+      expect(slots.length).toBe(FACES[s].length);
+      const axisSlots = slots.filter(v => v < 6);
+      expect(new Set(axisSlots).size).toBe(axisSlots.length);
+      expect(slots.filter(v => v === 6).length).toBe(nonAxis[s]);
+    }
+    // cube: all six axis slots used
+    expect([...FACE_SLOT[0]].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
   });
 
   it('axis rotations are 4-cycles with exact inverses', () => {

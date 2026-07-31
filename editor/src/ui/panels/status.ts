@@ -4,7 +4,7 @@
 import type { UiContext } from '../context';
 import { h } from '../dom';
 
-const HINT = '1-5 инструменты · X/Y/Z поворот (Shift обратно) · M симметрия · Tab виды · Del удалить · Ctrl+Z/Y';
+const HINT = '1-6 инструменты · X/Y/Z поворот (Shift обратно) · M симметрия · Tab виды · Del удалить · Ctrl+Z/Y';
 
 export function buildStatusBar(host: HTMLElement, ctx: UiContext): { setStatus(text: string): void } {
   host.className = 'statusbar';

@@ -15,7 +15,7 @@ import { MATERIAL_SLOTS } from '../core/types';
 import { HULL_COMP, ORIENTATIONS, WING_RING, corner, rot } from '../core/tables';
 import { compSlot } from '../core/materials';
 import type { GameData } from '../data/loader';
-import type { BuildOptions, BuiltShip } from './geometryTypes';
+import type { BuildOptions, BuiltShip, PlateVariants } from './geometryTypes';
 import { occupancyOf, vertexAO, type Occupancy } from './ao';
 import { BLANK_UV, atlasUV } from './atlas';
 import { chamferFaces } from './chamfer';
@@ -266,14 +266,20 @@ function addFiller(
       which also means they inherit the facet culling for free. ── */
 function addPlates(
   b: SlotBuckets, kept: readonly Facet[], data: GameData, occ: Occupancy,
-  aoOn: boolean, plateVariant: number, texOn: boolean,
+  aoOn: boolean, variants: PlateVariants, texOn: boolean,
 ): void {
-  const all = data.plateMesh.quad_all;
+  const quads = data.plateMesh.quad_all ?? [];
+  const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
+  const pick = <T>(pool: readonly T[], i: number): T | undefined =>
+    pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
   for (const f of kept) {
+    /* recovered per-face decoration: skip faces whose slot says no plate */
+    if (f.plate === false) continue;
+    /* plate type is exact per face: axis quad p1111 / slope p2121 (quad pool,
+       sheared by the frame) · axis tri p121 / cut p222A,V (tri pool) */
     const pm = f.verts.length === 4
-      ? (all && all.length ? all[((plateVariant % all.length) + all.length) % all.length]
-                           : data.plateMesh.quad)
-      : data.plateMesh.tri;
+      ? pick(quads, f.nonAxis ? variants.slope : variants.quad)
+      : pick(tris, f.nonAxis ? variants.eq : variants.tri);
     if (!pm || pm.outline.length < 3) continue;
     const nw = facetNormal(f.verts);
     const cen = centroid(f.verts);
@@ -338,7 +344,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     addShells(b, doc, data, occ, opts.ao, opts.textures);
     addModules(b, doc, data, occ, opts.ao, opts.textures);
     addFiller(b, kept, occ, opts.ao);
-    addPlates(b, kept, data, occ, opts.ao, opts.plateVariant, opts.textures);
+    addPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
     addWings(b, doc, occ, opts.ao, opts.textures);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */

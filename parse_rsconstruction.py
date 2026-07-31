@@ -54,12 +54,23 @@ def parse_file(path):
         eid = struct.unpack_from('<H', rec, 34)[0]
         variant = struct.unpack_from('<I', rec, 36)[0]
         counter = struct.unpack_from('<I', rec, 129)[0]
+        # Plate slots, layout settled 2026-07-31 by fleet-wide correlation with
+        # face exteriority: six 16-byte axis slots in CUBE-LOCAL order
+        # [+x,-x,+y,-y,+z,-z] — {u8 plateOrientation; garbage; u8 noPlate; pad;
+        # u32 flag} — plus a compact 7th slot in the tail for the shape's
+        # non-axis face (k7 cut / k6 slope / k4 diagonal): orientation @136,
+        # present @144. Presence polarity: axis byte@48+16i == 0 means a plate
+        # is mounted; tail byte@144 == 1 means mounted.
         slots = []
         for i in range(6):
             b = 40 + 16 * i
+            assert rec[b] < 24, f'{path} rec{r} slot{i}: orientation {rec[b]}'
             slots.append({'o': rec[b],
-                          'a': struct.unpack_from('<I', rec, b + 8)[0] & 1,
-                          'b': struct.unpack_from('<I', rec, b + 12)[0] & 1})
+                          'p': 1 if rec[b + 8] == 0 else 0,
+                          'f': struct.unpack_from('<I', rec, b + 12)[0] & 1})
+        slots.append({'o': rec[136] if rec[136] < 24 else 0,
+                      'p': 1 if rec[144] == 1 else 0,
+                      'f': 0})
         assert orient < 24, f'{path} rec{r}: orientation {orient}'
         assert shape < 4, f'{path} rec{r}: shape {shape}'
         assert compartment < 10, f'{path} rec{r}: compartment {compartment}'

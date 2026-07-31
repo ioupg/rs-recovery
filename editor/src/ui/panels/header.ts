@@ -10,6 +10,7 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'erase', label: 'erase', key: '3' },
   { id: 'paint', label: 'paint', key: '4' },
   { id: 'wing', label: 'wing', key: '5' },
+  { id: 'plate', label: 'plate', key: '6' },
 ];
 
 const RENDER_MODES: { id: 'box' | 'plate' | 'mesh'; label: string }[] = [
@@ -68,19 +69,29 @@ export function buildHeader(host: HTMLElement, ctx: UiContext): void {
     toggleBtns.set(tg.key, b);
     toggleGroup.append(b);
   }
-  const plateN = ctx.data.plateMesh.quad_all.length;
-  const plateBtn = button('', { title: 'варианты декоративной плиты (только mesh)' });
+  /* per-type decoration mesh pickers: the plate TYPE per face is recovered
+     data; only which archive mesh dresses each type is a choice */
+  const quadN = ctx.data.plateMesh.quad_all.length;
+  const plateQuadBtn = button('', { title: 'вариант плиты p1111 (осевые квадраты)' });
+  const plateSlopeBtn = button('', { title: 'вариант плиты p2121 (скосы)' });
   const refreshPlateBtn = () => {
-    plateBtn.textContent = plateN > 0 ? `plate ${ctx.state.render.plateVariant + 1}/${plateN}` : 'plate —';
-    plateBtn.classList.toggle('irrelevant', ctx.state.render.mode !== 'mesh');
+    const v = ctx.state.render.plateVariants;
+    plateQuadBtn.textContent = quadN ? `p1111 ${v.quad + 1}/${quadN}` : 'p1111 —';
+    plateSlopeBtn.textContent = quadN ? `p2121 ${v.slope + 1}/${quadN}` : 'p2121 —';
+    const dim = ctx.state.render.mode !== 'mesh';
+    plateQuadBtn.classList.toggle('irrelevant', dim);
+    plateSlopeBtn.classList.toggle('irrelevant', dim);
   };
-  plateBtn.onclick = () => {
-    if (plateN === 0) return;
-    const next = (ctx.state.render.plateVariant + 1) % plateN;
-    ctx.state.update({ render: { ...ctx.state.render, plateVariant: next } });
+  const cycle = (key: 'quad' | 'slope') => () => {
+    if (!quadN) return;
+    const v = ctx.state.render.plateVariants;
+    ctx.state.update({ render: { ...ctx.state.render,
+      plateVariants: { ...v, [key]: (v[key] + 1) % quadN } } });
   };
+  plateQuadBtn.onclick = cycle('quad');
+  plateSlopeBtn.onclick = cycle('slope');
   refreshPlateBtn();
-  toggleGroup.append(plateBtn);
+  toggleGroup.append(plateQuadBtn, plateSlopeBtn);
   host.append(toggleGroup, divider());
 
   /* ── symmetry ── */

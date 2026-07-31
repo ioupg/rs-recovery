@@ -116,9 +116,9 @@ describe('exportShipJson — archive field regeneration', () => {
 });
 
 function emptySlotDefaults(): PlateSlot[][] {
-  return Array.from({ length: 24 }, () => Array.from({ length: 6 }, () => ({ o: 0, a: 0, b: 0 })));
+  return Array.from({ length: 24 }, () => Array.from({ length: 6 }, () => ({ o: 0, p: 1, f: 0 })));
 }
 
 function fullSlotDefaults(): PlateSlot[][] {
-  return Array.from({ length: 24 }, (_, o) => Array.from({ length: 6 }, (_, i) => ({ o: o + i, a: 1, b: 0 })));
+  return Array.from({ length: 24 }, (_, o) => Array.from({ length: 7 }, (_, i) => ({ o: (o + i) % 24, p: 1, f: 0 })));
 }

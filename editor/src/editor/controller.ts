@@ -3,7 +3,10 @@
 
 import * as THREE from 'three';
 import type { Cube, ShapeId, Vec3, Wing } from '../core/types';
-import { COMP_NAMES, WING_NAMES, rotateOrient } from '../core/tables';
+import {
+  COMP_NAMES, FACE_SLOT, ORIENTATIONS, PLATES_COUNT, SLOT_AXES, WING_NAMES, rotateOrient,
+} from '../core/tables';
+import type { PlateSlot } from '../core/types';
 import type { ShipModel } from '../core/model';
 import type { History } from '../core/history';
 import {
@@ -145,6 +148,12 @@ export class EditorController {
       if (!hit) { setStatus(''); return; }
       const ent = this.o.model.byUid(hit.tri.uid);
       if (!ent) return;
+      if (state.tool === 'plate' && 'shape' in ent) {
+        const slotIdx = FACE_SLOT[(ent as Cube).shape as ShapeId][hit.tri.faceIndex];
+        const on = (ent as Cube).slots?.[slotIdx] ? (ent as Cube).slots![slotIdx].p !== 0 : true;
+        setStatus(`грань [${ent.x}, ${ent.y}, ${ent.z}] слот ${slotIdx} · плита ${on ? 'установлена — клик снимает' : 'снята — клик ставит'}`);
+        return;
+      }
       setStatus('shape' in ent
         ? `куб [${ent.x}, ${ent.y}, ${ent.z}] · ${COMP_NAMES[(ent as Cube).comp]} · o${ent.o}`
         : `крыло ${WING_NAMES[(ent as Wing).kind]} [${ent.x}, ${ent.y}, ${ent.z}]`);
@@ -161,6 +170,7 @@ export class EditorController {
       case 'wing': return this.doAddWing(e);
       case 'erase': return this.doErase(e);
       case 'paint': return this.doPaint(e);
+      case 'plate': return this.doPlate(e);
       case 'select': return this.beginSelect(e);
     }
   };
@@ -359,6 +369,64 @@ export class EditorController {
     state.select([...state.selection].filter(u => !uids.includes(u)));
   }
 
+  /* ── plate tool: per-face decoration toggle on recovered slot data ── */
+
+  /** slot index of a face by its world outward direction, for a cube at
+      orientation o: un-rotate into the local frame, match a local axis;
+      non-axis faces are always slot 6 */
+  private slotOfWorldDir(o: number, dir: Vec3 | null): number {
+    if (!dir) return 6;
+    const m = ORIENTATIONS[o];
+    // R⁻¹ = Rᵀ for the rotation group
+    const local: Vec3 = [
+      m[0] * dir[0] + m[3] * dir[1] + m[6] * dir[2],
+      m[1] * dir[0] + m[4] * dir[1] + m[7] * dir[2],
+      m[2] * dir[0] + m[5] * dir[1] + m[8] * dir[2],
+    ];
+    return SLOT_AXES.findIndex(a =>
+      a[0] === Math.round(local[0]) && a[1] === Math.round(local[1]) && a[2] === Math.round(local[2]));
+  }
+
+  private plateToggleEntries(cube: Cube, slotIdx: number): { uid: number; patch: Partial<Cube> } | null {
+    if (slotIdx < 0) return null;
+    const defaults = (): PlateSlot[] =>
+      Array.from({ length: 7 }, () => ({ o: 0, p: 1, f: 0 }));
+    const slots = (cube.slots && cube.slots.length === 7
+      ? cube.slots.map(s => ({ ...s })) : defaults());
+    slots[slotIdx] = { ...slots[slotIdx], p: slots[slotIdx].p ? 0 : 1 };
+    return { uid: cube.uid, patch: { slots } };
+  }
+
+  private doPlate(e: PointerEvent): void {
+    const hit = this.pickAt(e.clientX, e.clientY);
+    if (!hit || hit.tri.kind !== 'cube') return;
+    const { state, model, history, setStatus } = this.o;
+    const cube = model.byUid(hit.tri.uid);
+    if (!cube || !('shape' in cube)) return;
+    const slotIdx = FACE_SLOT[cube.shape as ShapeId][hit.tri.faceIndex];
+    if (slotIdx === undefined || slotIdx >= 7) return;
+    const entries = [this.plateToggleEntries(cube, slotIdx)].filter(
+      (x): x is { uid: number; patch: Partial<Cube> } => x !== null);
+    if (state.symmetry.on) {
+      const twinUids = mirrorTwinUids([cube.uid], state.symmetry.planeX2,
+        u => model.byUid(u), (x, y, z) => model.cubeAt(x, y, z), () => model.doc.wings);
+      for (const tu of twinUids) {
+        const twin = model.byUid(tu);
+        if (!twin || !('shape' in twin)) continue;
+        // mirror this face's world direction across x, find the twin's slot
+        const worldDir = hit.tri.exit;
+        const mirrored: Vec3 | null = worldDir ? [-worldDir[0], worldDir[1], worldDir[2]] : null;
+        const twinSlot = this.slotOfWorldDir(twin.o, mirrored);
+        const entry = this.plateToggleEntries(twin as Cube, twinSlot);
+        if (entry) entries.push(entry);
+      }
+    }
+    if (!entries.length) return;
+    history.run(new PatchCubes(entries));
+    const nowOn = (model.byUid(cube.uid) as Cube).slots![slotIdx].p !== 0;
+    setStatus(`плита ${nowOn ? 'установлена' : 'снята'} · слот ${slotIdx}${slotIdx < PLATES_COUNT[cube.shape as ShapeId] ? '' : ' (нет грани)'}`);
+  }
+
   private doPaint(e: PointerEvent): void {
     const hit = this.pickAt(e.clientX, e.clientY);
     if (!hit || hit.tri.kind !== 'cube') return;
@@ -380,7 +448,7 @@ export class EditorController {
     const t = e.target as HTMLElement;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const { state, history } = this.o;
-    const tools = { '1': 'select', '2': 'add', '3': 'erase', '4': 'paint', '5': 'wing' } as const;
+    const tools = { '1': 'select', '2': 'add', '3': 'erase', '4': 'paint', '5': 'wing', '6': 'plate' } as const;
     if (e.key in tools) { state.update({ tool: tools[e.key as keyof typeof tools] }); return; }
     switch (e.key.toLowerCase()) {
       case 'z':

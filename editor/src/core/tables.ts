@@ -190,3 +190,39 @@ const ROT_MINUS: readonly number[][] = ROT_PLUS.map(t => {
 export function rotateOrient(o: number, axis: 0 | 1 | 2, dir: 1 | -1): number {
   return (dir === 1 ? ROT_PLUS : ROT_MINUS)[axis][o];
 }
+
+/* ── plate slots ────────────────────────────────────────────────
+   Each cube stores 7 plate slots: the six cube-local axis faces in order
+   [+x,−x,+y,−y,+z,−z] plus the shape's non-axis face (k7 cut / k6 slope /
+   k4 diagonal) as slot 6. Established by fleet-wide correlation of the
+   per-slot presence bytes with face exteriority (local order won 83% vs 56%
+   on rotated cubes; axis assignment 95-99% at o=0). */
+
+/** local axis directions in slot order */
+export const SLOT_AXES: readonly Vec3[] = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+];
+
+/** FACE_SLOT[shape][faceIndex] → slot index 0..6 (6 = the non-axis face).
+    Faces are in local corner space, so orientation never enters. */
+export const FACE_SLOT: Record<ShapeId, readonly number[]> = Object.fromEntries(
+  (Object.keys(FACES).map(Number) as ShapeId[]).map(s => [
+    s,
+    FACES[s].map(loop => {
+      const pts = loop.map(corner);
+      for (let a = 0; a < 3; a++) {
+        if (pts.every(p => p[a] === 1)) return a * 2;       // +axis
+        if (pts.every(p => p[a] === 0)) return a * 2 + 1;   // −axis
+      }
+      return 6;
+    }),
+  ]),
+) as unknown as Record<ShapeId, readonly number[]>;
+
+/** number of plate slots the exe considers per shape (platesCount, 0x440120) */
+export const PLATES_COUNT: Record<ShapeId, number> = { 0: 6, 1: 7, 2: 5, 3: 4 };
+
+/** exe PLATE_TYPE[shape][plateIndex] names, table 0x1db70b0 / 0x1db7218:
+    face plate types by geometry — axis quad p1111, axis tri p121,
+    k6 slope p2121, k4 diagonal p222A, k7 cut p222V. */
+export const PLATE_TYPE_NAMES = ['p1111', 'p121', 'p2121', 'p222A', 'p222V'] as const;

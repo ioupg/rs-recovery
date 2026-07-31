@@ -4,7 +4,7 @@
 import type { ShapeId, Unsubscribe } from '../core/types';
 import type { BuildOptions, ViewportLayout } from '../render/geometryTypes';
 
-export type Tool = 'select' | 'add' | 'erase' | 'paint' | 'wing';
+export type Tool = 'select' | 'add' | 'erase' | 'paint' | 'wing' | 'plate';
 
 export interface RenderSettings extends BuildOptions {
   edges: boolean;
@@ -27,7 +27,7 @@ export class EditorState {
   symmetry: SymmetrySettings = { on: false, planeX2: 0 };
   render: RenderSettings = {
     mode: 'box', chamfer: true, ao: true, textures: true,
-    plateVariant: 8, edges: true, compColors: true,
+    plateVariants: { quad: 8, slope: 8, tri: 0, eq: 0 }, edges: true, compColors: true,
   };
   layout: ViewportLayout = 'single';
 
