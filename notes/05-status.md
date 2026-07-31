@@ -101,12 +101,16 @@ choice stays a choice.
 
 ### Other open threads
 
-- **Textures.** `compiled/textures/*.compiled` is trivially decodable: `u32 width`,
-  `u32 height`, `w·h·4` bytes, 52-byte trailer — consistent across every file
-  (512² craftHull, 256² for the JPEGs, 128² ContourAlum). RGB reads cleanly; the
-  4th byte per pixel is *not* alpha (values like 7 and 9) and is unexplained.
-  Decoding these would make the "textures" toggle meaningful in detail mode, using
-  the ship's real 2014 textures instead of the procedural stand-in atlas.
+- **Textures — SOLVED (2026-07-30).** All 14 decoded by `decode_textures.py` into
+  `recovered/textures/*.png` and rendered by the constructor's mesh mode. Byte
+  order proven RGBA (bordersDusty = black/yellow hazard stripes; BGRA would make
+  them teal). The 4th byte is a small per-file constant (7-10; 255 only in
+  balk_fragment) — still not alpha, forced opaque. The 52-byte trailer starts
+  `15 00 00 00 01 00 00 00 01 00 …` on every file. The 32-byte mesh vertex is
+  pos3+nrm3+uv2 — UVs were always there, validated in-range, and now flow through
+  the pipeline (`shapes.js` carries per-submesh `uv` + `tex`). `system_colors.png`
+  is the engine's own per-system palette — the module cages sample their colour
+  from it, which is why nine cages have no colour of their own.
 - **Module ↔ system mapping.** Nine cages exist for ten `m1*` names; they are
   currently handed out by compartment id in a stable order. Same hash blocker.
 - **Cages poke out of partial cells.** The module cages are full-cell meshes, so
