@@ -71,22 +71,28 @@ exterior face.
 
 ---
 
-## Blocked, and why (do not re-litigate without new information)
+## Formerly blocked — SOLVED 2026-07-31 with the engine source
 
-**Which mesh file is which named part.** Two independent negative results:
+**Which mesh file is which named part** — cracked. The SharedTec engine source
+(dropped into `tmp/`, untracked) contains the mechanism in
+`resourceManager/resource.cpp`: `Resource::ID::computeCRC` = **standard CRC32
+of the resource registration name**, printed decimal into
+`<source>.<id>.compiled`. The name form is
+`RedStar/parts/<file><node>=<variant>` (no separator between file and node).
+Verified 14/14 on textures (bare filename), 25/75 on meshes — including
+**every `=default` part**: the four shells (confirming the corner-set matching
+by name), the five plate types, four of five wing skins, and all ten `m1*`
+module cages, which binds cages to compartments exactly
+(`m1*power`=comp0 … `m1*cargo`=comp9; the one non-cognate pair is
+мостик↔cargo). The remaining 50 ids are artist-named variants
+(two recovered: `=grid`); ships never store a variant, so the `=default` set
+IS the 2014 appearance. Notably the default p1111 plate is a hazard-striped
+placeholder — `_defaults.fbx` is literally the placeholder library.
+Earlier brute-force failed because the file+node concatenation has no
+separator; nobody guessed that form.
 
-1. *Not in the ship files.* The per-slot byte in each cube record is determined by
-   `(cube orientation, slot index)` — only 9 of 36 observed pairs vary, and that
-   variation is presence/absence. It is a plate **orientation**, not a style id.
-2. *Not a hash of the name.* With the real vocabulary and the `=default` syntax,
-   ~447 000 combinations (13 959 name forms × 8 hash functions × 2 encodings ×
-   ±terminator) hit none of the 75 ids. The only FNV-1a in the binary is MSVC's
-   `std::hash`. The id is assigned by the offline asset compiler, which is not in
-   this executable.
-
-Consequence: plate **type** per face is fully recovered; plate **mesh** is a
-choice. The viewer exposes a picker rather than pretending otherwise. Anything
-rendered from the meshes is *a plausible dressing of exact structure*.
+The old negative result about the per-slot byte being an orientation (not a
+style id) still stands — variants were never persisted per face.
 
 ---
 
