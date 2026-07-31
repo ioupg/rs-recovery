@@ -16,6 +16,7 @@ export const buildUi: BuildUi = (root, ctx) => {
   const main = document.createElement('main');
   const rail = document.createElement('nav');
   const stage = document.createElement('div');
+  stage.className = 'stage';
   const rightPanel = document.createElement('aside');
   const statusBar = document.createElement('div');
 
