@@ -85,7 +85,7 @@ export function buildHeader(host: HTMLElement, ctx: UiContext): void {
 
   /* ── symmetry ── */
   const symGroup = h('div', 'group');
-  const symBtn = button('симметрия', { title: 'переключить симметрию (X)' });
+  const symBtn = button('симметрия', { title: 'переключить симметрию (M)' });
   symBtn.onclick = () => ctx.state.update({
     symmetry: { ...ctx.state.symmetry, on: !ctx.state.symmetry.on },
   });

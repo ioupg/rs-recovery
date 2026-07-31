@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FACES, ORIENTATIONS, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
-  WING_RING, corner, rot,
+  WING_RING, corner, rot, rotateOrient,
 } from './tables';
 import type { ShapeId } from './types';
 
@@ -34,5 +34,19 @@ describe('tables', () => {
     for (const k of Object.keys(WING_RING).map(Number))
       for (let o = 0; o < 24; o++)
         expect(REFLECT_X_WING[k][REFLECT_X_WING[k][o]]).toBe(o);
+  });
+
+  it('axis rotations are 4-cycles with exact inverses', () => {
+    for (const axis of [0, 1, 2] as const) {
+      for (let o = 0; o < 24; o++) {
+        let f = o;
+        for (let i = 0; i < 4; i++) f = rotateOrient(f, axis, 1);
+        expect(f).toBe(o);                                     // 90° × 4 = identity
+        expect(rotateOrient(rotateOrient(o, axis, 1), axis, -1)).toBe(o);
+      }
+      // each step is a permutation
+      const seen = new Set(Array.from({ length: 24 }, (_, o) => rotateOrient(o, axis, 1)));
+      expect(seen.size).toBe(24);
+    }
   });
 });

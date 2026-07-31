@@ -61,6 +61,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
+  /* the solid plane occludes the hull from below while editing — the thin grid
+     alone carries the ground reference */
+  floor.visible = false;
   scene.add(floor);
 
   const grid = new THREE.GridHelper(40, 40, 0x2a3948, 0x1a2430);

@@ -15,7 +15,9 @@ import { createScene } from './render/scene';
 import { MaterialCache } from './render/materialCache';
 import { ShipView } from './render/shipView';
 import { Viewports } from './render/viewports';
+import { ShapePreview } from './render/shapePreview';
 import { exportGlb } from './render/exportGlb';
+import { compSlot } from './core/materials';
 import { buildUi } from './ui/ui';
 import type { UiContext } from './ui/context';
 
@@ -103,6 +105,26 @@ async function init(): Promise<void> {
     setStatus: refs.setStatus,
     fitView: actions.fitView,
   });
+
+  /* active-piece preview in the Сборка tab */
+  const piecePreview = new ShapePreview(refs.preview);
+  const refreshPreview = (): void => {
+    const wing = state.tool === 'wing';
+    piecePreview.update({
+      kind: wing ? 'wing' : 'cube',
+      shape: state.activeShape,
+      wingKind: state.activeWingKind,
+      o: state.activeOrient,
+      color: wing ? materials.get('wing').color : materials.get(compSlot(state.activeComp)).color,
+    });
+  };
+  state.subscribe(keys => {
+    if (keys.some(k => k === 'activeShape' || k === 'activeOrient'
+        || k === 'activeComp' || k === 'activeWingKind' || k === 'tool'))
+      refreshPreview();
+  });
+  materials.subscribe(() => refreshPreview());
+  refreshPreview();
 
   /* coalesced rebuild — model edits and render-option changes both land here */
   let dirty = false;

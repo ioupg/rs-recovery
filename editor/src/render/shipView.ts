@@ -19,7 +19,7 @@ import type { BuildOptions, PickTri } from './geometryTypes';
 export type EntityResolver = (uid: number) => Cube | Wing | undefined;
 
 /** placement preview passed to setGhost — not part of the core/render
-    contract types, so defined here (single shape instance at a cell). */
+    contract types, so defined here (single shape or wing instance at a cell). */
 export interface GhostSpec {
   x: number;
   y: number;
@@ -27,6 +27,9 @@ export interface GhostSpec {
   shape: ShapeId;
   o: number;
   valid: boolean;
+  /** 'wing' previews the actual wing ring instead of a shape solid */
+  kind?: 'wing';
+  wingKind?: number;
 }
 
 const isCube = (e: Cube | Wing): e is Cube => 'shape' in e;
@@ -162,21 +165,32 @@ export class ShipView {
   setGhost(g: GhostSpec | null): void {
     clearGroup(this.ghostGroup);
     if (!g) return;
+    const color = g.valid ? 0x4a90d9 : 0xd64545;
+    const loops: (readonly number[])[] = g.kind === 'wing'
+      ? (WING_RING[g.wingKind ?? 0] ? [WING_RING[g.wingKind ?? 0]] : [])
+      : [...FACES[g.shape]];
     const pos: number[] = [];
-    for (const loop of FACES[g.shape]) {
+    const outline: number[] = [];
+    for (const loop of loops) {
       const verts = loop.map(ci => {
         const p = rot(g.o, corner(ci));
         return [p[0] + g.x, p[1] + g.y, p[2] + g.z] as const;
       });
       for (let i = 1; i < verts.length - 1; i++) pos.push(...verts[0], ...verts[i], ...verts[i + 1]);
+      for (let i = 0; i < verts.length; i++)
+        outline.push(...verts[i], ...verts[(i + 1) % verts.length]);
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const mat = new THREE.MeshBasicMaterial({
-      color: g.valid ? 0x4a90d9 : 0xd64545,
-      transparent: true, opacity: 0.45, depthTest: true, side: THREE.DoubleSide,
+      color, transparent: true, opacity: 0.45, depthTest: true, side: THREE.DoubleSide,
     });
     this.ghostGroup.add(new THREE.Mesh(geo, mat));
+    /* crisp contour so orientation reads even against same-hue hull */
+    const lgeo = new THREE.BufferGeometry();
+    lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
+    this.ghostGroup.add(new THREE.LineSegments(lgeo,
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })));
   }
 
   setSymmetryPlane(planeX2: number | null): void {

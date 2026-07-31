@@ -3,11 +3,11 @@
 
 import * as THREE from 'three';
 import type { Cube, ShapeId, Vec3, Wing } from '../core/types';
-import { COMP_NAMES, WING_NAMES } from '../core/tables';
+import { COMP_NAMES, WING_NAMES, rotateOrient } from '../core/tables';
 import type { ShipModel } from '../core/model';
 import type { History } from '../core/history';
 import {
-  AddCubes, AddWings, Composite, MoveEntities, PatchCubes, RemoveCubes, RemoveWings,
+  AddCubes, AddWings, Composite, MoveEntities, PatchCubes, PatchWings, RemoveCubes, RemoveWings,
 } from '../core/commands';
 import type { Command } from '../core/commands';
 import { detectPlaneX2 } from '../core/symmetry';
@@ -49,18 +49,25 @@ export class EditorController {
   } | null = null;
   private dragPreview: THREE.Group | null = null;
 
+  private lastPointer: { x: number; y: number } | null = null;
+
   constructor(o: ControllerOpts) {
     this.o = o;
     const c = o.canvas;
     c.addEventListener('pointerdown', this.onDown);
     c.addEventListener('pointermove', this.onMove);
     c.addEventListener('pointerup', this.onUp);
-    c.addEventListener('pointerleave', () => this.o.view.setGhost(null));
+    c.addEventListener('pointerleave', () => { this.lastPointer = null; this.o.view.setGhost(null); });
     window.addEventListener('keydown', this.onKey);
     o.state.subscribe(keys => {
       if (keys.includes('tool')) { this.o.view.setGhost(null); this.cancelGesture(); }
       if (keys.includes('symmetry'))
         this.o.view.setSymmetryPlane(this.o.state.symmetry.on ? this.o.state.symmetry.planeX2 : null);
+      /* rotating or re-picking from the keyboard must update the ghost without
+         waiting for the mouse to move */
+      if (keys.some(k => k === 'activeOrient' || k === 'activeShape'
+          || k === 'activeComp' || k === 'activeWingKind' || k === 'symmetry'))
+        this.refreshHover();
     });
   }
 
@@ -112,28 +119,37 @@ export class EditorController {
   private onMove = (e: PointerEvent): void => {
     if (this.gesture) { this.updateDrag(e); return; }
     if (e.buttons) return;                // navigating
+    this.lastPointer = { x: e.clientX, y: e.clientY };
+    this.refreshHover();
+  };
+
+  private refreshHover(): void {
+    if (!this.lastPointer || this.gesture) return;
+    const { x: cx, y: cy } = this.lastPointer;
     const { state, view, setStatus } = this.o;
     if (state.tool === 'add' || state.tool === 'wing') {
-      const cell = this.targetCell(e.clientX, e.clientY);
+      const cell = this.targetCell(cx, cy);
       if (!cell) { view.setGhost(null); setStatus(''); return; }
       const specs = state.tool === 'add' ? this.cubeSpecsAt(cell) : null;
       const wspecs = state.tool === 'wing' ? this.wingSpecsAt(cell) : null;
       const valid = specs ? specs.every(s => this.cellFree([s.x, s.y, s.z]))
                           : wspecs!.every(s => !this.o.model.cubeAt(s.x, s.y, s.z));
-      view.setGhost({ x: cell[0], y: cell[1], z: cell[2],
-                      shape: state.tool === 'add' ? state.activeShape : 0,
-                      o: state.activeOrient, valid });
+      view.setGhost(state.tool === 'add'
+        ? { x: cell[0], y: cell[1], z: cell[2],
+            shape: state.activeShape, o: state.activeOrient, valid }
+        : { x: cell[0], y: cell[1], z: cell[2], shape: 0,
+            o: state.activeOrient, valid, kind: 'wing', wingKind: state.activeWingKind });
       setStatus(`${state.tool === 'add' ? 'блок' : WING_NAMES[state.activeWingKind]} → [${cell.join(', ')}]${valid ? '' : ' · занято'}`);
     } else {
-      const hit = this.pickAt(e.clientX, e.clientY);
+      const hit = this.pickAt(cx, cy);
       if (!hit) { setStatus(''); return; }
       const ent = this.o.model.byUid(hit.tri.uid);
       if (!ent) return;
-      setStatus('shape' in ent!
+      setStatus('shape' in ent
         ? `куб [${ent.x}, ${ent.y}, ${ent.z}] · ${COMP_NAMES[(ent as Cube).comp]} · o${ent.o}`
         : `крыло ${WING_NAMES[(ent as Wing).kind]} [${ent.x}, ${ent.y}, ${ent.z}]`);
     }
-  };
+  }
 
   /* ── LMB gestures ────────────────────────────────────────── */
 
@@ -367,12 +383,21 @@ export class EditorController {
     const tools = { '1': 'select', '2': 'add', '3': 'erase', '4': 'paint', '5': 'wing' } as const;
     if (e.key in tools) { state.update({ tool: tools[e.key as keyof typeof tools] }); return; }
     switch (e.key.toLowerCase()) {
-      case 'z': if (e.ctrlKey) { e.preventDefault(); history.undo(); } return;
-      case 'y': if (e.ctrlKey) { e.preventDefault(); history.redo(); } return;
+      case 'z':
+        if (e.ctrlKey) { e.preventDefault(); history.undo(); }
+        else this.rotateAxis(2, e.shiftKey ? -1 : 1);
+        return;
+      case 'y':
+        if (e.ctrlKey) { e.preventDefault(); history.redo(); }
+        else this.rotateAxis(1, e.shiftKey ? -1 : 1);
+        return;
+      case 'x':
+        if (!e.ctrlKey) this.rotateAxis(0, e.shiftKey ? -1 : 1);
+        return;
       case 'r': this.rotate(e.shiftKey ? -1 : 1); return;
       case 'q': state.update({ activeComp: (state.activeComp + 9) % 10 }); return;
       case 'e': state.update({ activeComp: (state.activeComp + 1) % 10 }); return;
-      case 'x': this.toggleSymmetry(); return;
+      case 'm': this.toggleSymmetry(); return;
       case 'f': this.o.fitView(); return;
       case 'delete': case 'backspace':
         if (state.selection.size) this.removeUids([...state.selection]);
@@ -387,16 +412,34 @@ export class EditorController {
   };
 
   private rotate(dir: 1 | -1): void {
+    this.applyOrientMap(o => ((o + dir) % 24 + 24) % 24);
+  }
+
+  /** ±90° about a world axis: composed onto the selection in place, or onto
+      the active orientation used for placement */
+  private rotateAxis(axis: 0 | 1 | 2, dir: 1 | -1): void {
+    this.applyOrientMap(o => rotateOrient(o, axis, dir));
+  }
+
+  private applyOrientMap(map: (o: number) => number): void {
     const { state, model, history } = this.o;
     if (state.tool === 'select' && state.selection.size) {
-      const entries = [...state.selection]
+      const cubes = [...state.selection]
         .map(u => model.byUid(u))
         .filter((en): en is Cube => !!en && 'shape' in en)
-        .map(c => ({ uid: c.uid, patch: { o: ((c.o + dir) % 24 + 24) % 24 } }));
-      if (entries.length) history.run(new PatchCubes(entries));
+        .map(c => ({ uid: c.uid, patch: { o: map(c.o) } }));
+      const wings = [...state.selection]
+        .map(u => model.byUid(u))
+        .filter((en): en is Wing => !!en && !('shape' in en))
+        .map(w => ({ uid: w.uid, patch: { o: map(w.o) } }));
+      const cmds: Command[] = [];
+      if (cubes.length) cmds.push(new PatchCubes(cubes));
+      if (wings.length) cmds.push(new PatchWings(wings));
+      if (cmds.length === 1) history.run(cmds[0]);
+      else if (cmds.length > 1) history.run(new Composite('поворот', cmds));
       return;
     }
-    state.update({ activeOrient: ((state.activeOrient + dir) % 24 + 24) % 24 });
+    state.update({ activeOrient: map(state.activeOrient) });
   }
 
   private toggleSymmetry(): void {

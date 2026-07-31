@@ -47,5 +47,7 @@ export interface UiRefs {
   stage: HTMLElement;
   /** transient status-line setter (hover cell, tool hints) */
   setStatus(text: string): void;
+  /** canvas in the Сборка tab for the active-piece preview (render layer draws it) */
+  preview: HTMLCanvasElement;
 }
 export type BuildUi = (root: HTMLElement, ctx: UiContext) => UiRefs;

@@ -8,7 +8,16 @@ import { COMP_IDS, COMP_NAMES, SHAPE_NAMES, WING_KINDS, WING_NAMES } from '../..
 import { compSlot, DEFAULT_MATERIALS } from '../../core/materials';
 import { button, h } from '../dom';
 
-export function buildBuildTab(host: HTMLElement, ctx: UiContext): void {
+export function buildBuildTab(host: HTMLElement, ctx: UiContext): { preview: HTMLCanvasElement } {
+  /* ── live piece preview (rendered by render/shapePreview via main.ts) ── */
+  const previewSection = h('section', 'panel-section');
+  previewSection.append(h('h3', undefined, 'элемент'));
+  const preview = document.createElement('canvas');
+  preview.className = 'preview-canvas';
+  previewSection.append(preview);
+  previewSection.append(h('div', 'preview-legend',
+    'оси: X красная · Y зелёная · Z синяя'));
+
   /* ── shape ── */
   const shapeSection = h('section', 'panel-section');
   shapeSection.append(h('h3', undefined, 'форма'));
@@ -34,6 +43,8 @@ export function buildBuildTab(host: HTMLElement, ctx: UiContext): void {
   nextBtn.onclick = () => ctx.state.update({ activeOrient: (ctx.state.activeOrient + 1) % 24 });
   orientStepper.append(prevBtn, orientVal, nextBtn);
   orientSection.append(orientStepper);
+  orientSection.append(h('div', 'preview-legend',
+    'X/Y/Z — поворот вокруг оси · Shift — обратно · R — перебор'));
 
   /* ── compartment ── */
   const compSection = h('section', 'panel-section');
@@ -64,7 +75,7 @@ export function buildBuildTab(host: HTMLElement, ctx: UiContext): void {
   }
   wingSection.append(wingGrid);
 
-  host.append(shapeSection, orientSection, compSection, wingSection);
+  host.append(previewSection, shapeSection, orientSection, compSection, wingSection);
 
   /* ── reactive refresh ── */
   const refreshActive = () => {
@@ -78,9 +89,10 @@ export function buildBuildTab(host: HTMLElement, ctx: UiContext): void {
     const compRelevant = tool === 'add' || tool === 'paint';
     const wingRelevant = tool === 'wing';
     shapeSection.classList.toggle('irrelevant', !shapeRelevant);
-    orientSection.classList.toggle('irrelevant', !shapeRelevant);
+    orientSection.classList.toggle('irrelevant', !(shapeRelevant || wingRelevant));
     compSection.classList.toggle('irrelevant', !compRelevant);
     wingSection.classList.toggle('irrelevant', !wingRelevant);
+    previewSection.classList.toggle('irrelevant', !(shapeRelevant || wingRelevant));
   };
   refreshActive();
   refreshRelevance();
@@ -90,4 +102,6 @@ export function buildBuildTab(host: HTMLElement, ctx: UiContext): void {
     if (keys.includes('activeShape') || keys.includes('activeComp') || keys.includes('activeWingKind')) refreshActive();
     if (keys.includes('tool')) refreshRelevance();
   });
+
+  return { preview };
 }

@@ -25,8 +25,8 @@ export const buildUi: BuildUi = (root, ctx) => {
 
   buildHeader(header, ctx);
   buildRail(rail, ctx);
-  buildRightPanel(rightPanel, ctx);
+  const { preview } = buildRightPanel(rightPanel, ctx);
   const { setStatus } = buildStatusBar(statusBar, ctx);
 
-  return { stage, setStatus };
+  return { stage, setStatus, preview };
 };

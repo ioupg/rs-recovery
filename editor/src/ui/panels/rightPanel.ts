@@ -13,7 +13,7 @@ const TABS = [
   { id: 'info', label: 'Инфо' },
 ] as const;
 
-export function buildRightPanel(host: HTMLElement, ctx: UiContext): void {
+export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: HTMLCanvasElement } {
   host.className = 'rightpanel';
 
   const tabsRow = h('div', 'tabs');
@@ -41,7 +41,8 @@ export function buildRightPanel(host: HTMLElement, ctx: UiContext): void {
   for (const t of TABS) tabBtns.get(t.id)!.onclick = () => activate(t.id);
   activate('build');
 
-  buildBuildTab(buildPanel, ctx);
+  const { preview } = buildBuildTab(buildPanel, ctx);
   buildMaterialsTab(materialsPanel, ctx);
   buildInfoTab(infoPanel, ctx);
+  return { preview };
 }

@@ -161,3 +161,32 @@ export const REFLECT_X_WING: Record<number, readonly number[]> = Object.fromEntr
     k, buildReflTable(o => WING_RING[k].map(i => rot(o, corner(i)))),
   ]),
 );
+
+/* ── 90° world-axis rotation steps through the group ────────────
+   Composing a quarter-turn about a world axis onto an orientation stays inside
+   the 24 (signed permutations are closed under multiplication), so each axis
+   defines a permutation of orientation indices; the reverse direction is its
+   inverse permutation. */
+
+const AXIS_STEP: readonly (readonly number[])[] = [
+  [1, 0, 0, 0, 0, -1, 0, 1, 0],   // Rx(+90°): (x,y,z) → (x,−z,y)
+  [0, 0, 1, 0, 1, 0, -1, 0, 0],   // Ry(+90°): (x,y,z) → (z,y,−x)
+  [0, -1, 0, 1, 0, 0, 0, 0, 1],   // Rz(+90°): (x,y,z) → (−y,x,z)
+];
+
+const ROT_PLUS: readonly (readonly number[])[] = AXIS_STEP.map(step =>
+  ORIENTATIONS.map(m => {
+    const idx = matIndex(matMul(step, m));
+    if (idx < 0) throw new Error('axis rotation left the group');
+    return idx;
+  }));
+const ROT_MINUS: readonly number[][] = ROT_PLUS.map(t => {
+  const inv = new Array<number>(24);
+  t.forEach((v, o) => { inv[v] = o; });
+  return inv;
+});
+
+/** compose a ±90° rotation about world axis 0/1/2 (x/y/z) onto orientation o */
+export function rotateOrient(o: number, axis: 0 | 1 | 2, dir: 1 | -1): number {
+  return (dir === 1 ? ROT_PLUS : ROT_MINUS)[axis][o];
+}
