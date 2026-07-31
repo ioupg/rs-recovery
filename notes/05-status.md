@@ -124,6 +124,23 @@ per face with the plate tool (6) — symmetry-aware, undoable, round-tripping
 through export. `parse_rsconstruction.py` emits the corrected 7-slot format
 (`{o, p, f}`; `f` is the still-unexplained per-slot flag, preserved).
 
+**Mounting model (2026-07-31, supersedes the affine-frame guess for axis
+faces):** the plate is authored on the cell's z=0 face with relief outward to
+−z and instanced by rotating about the cell centre by `ORIENTATIONS[slot.o]`
+— the face a plate decorates is `R(slot.o)·(0,0,−1)` in WORLD coordinates.
+Fleet evidence: 98% of o=0 slot orientations map (0,0,−1) onto their slot's
+axis, and on rotated cubes presence-vs-exteriority agrees 87% under this
+model vs ≤59% under any slot-index-based frame — the slot index is mere
+storage; the orientation byte itself says which face. No mirroring or
+rewinding needed (rotations preserve handedness). Non-axis faces (k7 cut /
+k6 slope / k4 diagonal, slot 6) keep the viewer's validated affine stand-in
+mapping since the archive has no meshes authored on those planes. The spin
+about the face normal is the plate's free decoration parameter — the editor
+rotates it with R (composed through the orientation group, face-preserving),
+previews mounting as a translucent ghost, and creates new cubes BARE: plates
+are per-face decoration, never a whole-ship drape. The classic viewer also
+skips unassigned plates now.
+
 ### Other open threads
 
 - **Textures — SOLVED (2026-07-30).** All 14 decoded by `decode_textures.py` into
