@@ -21,6 +21,8 @@ export interface BuiltShip {
   groupSlots: MaterialSlot[];
   /** source for the accent-line overlay (EdgesGeometry input), or null */
   edges: THREE.BufferGeometry | null;
+  /** EdgesGeometry angle threshold (viewer used 25 plate mode, 32 mesh mode) */
+  edgesThreshold: number;
 }
 
 export interface PickTri {
