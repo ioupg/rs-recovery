@@ -144,18 +144,13 @@ material at mesh-assembly time (do not mutate defs).
 
 ### geometry.ts
 
+Shared types live in `render/geometryTypes.ts` (done — RenderMode, BuildOptions,
+BuiltShip, PickTri, ViewportLayout). Builders are **pure functions over ShipDoc**
+(not ShipModel) — occupancy is computed internally from doc.cubes, exactly like
+the reference viewer does.
+
 ```ts
-export type RenderMode = 'box' | 'plate' | 'mesh';
-export interface BuildOptions {
-  mode: RenderMode; chamfer: boolean; ao: boolean; textures: boolean;
-  plateVariant: number;                     // index into plateMesh.quad_all
-}
-export interface BuiltShip {
-  geometry: THREE.BufferGeometry;           // non-indexed; groups per material slot
-  groupSlots: MaterialSlot[];               // group index → slot
-  edges: THREE.BufferGeometry | null;       // accent line source (EdgesGeometry input or null)
-}
-export function buildShipGeometry(model: ShipModel, data: GameData, opts: BuildOptions): BuiltShip;
+export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptions): BuiltShip;
 ```
 
 - **box**: facet collect + interior cull (viewer 763-798), fan-triangulate, flat
@@ -171,12 +166,7 @@ export function buildShipGeometry(model: ShipModel, data: GameData, opts: BuildO
 ### pick.ts
 
 ```ts
-export interface PickTri {
-  kind: 'cube' | 'wing'; uid: number;
-  faceIndex: number;                        // index into FACES[shape] / ring
-  exit: Vec3 | null;                        // outward axis step for adjacent-cell placement (null when normal not axis-aligned)
-}
-export function buildPickGeometry(model: ShipModel): { geometry: THREE.BufferGeometry; tris: PickTri[] };
+export function buildPickGeometry(doc: ShipDoc): { geometry: THREE.BufferGeometry; tris: PickTri[] };
 ```
 
 Raycast against this invisible mesh regardless of render mode; `faceIndex` of the
@@ -244,6 +234,10 @@ orientation (cycle 24), Q/E cycle compartment, Del delete selection, Ctrl+Z/Y
 undo/redo, F fit view, Tab toggle single/quad, X toggle symmetry.
 
 ## UI
+
+The UI builds against `src/ui/context.ts` (done — UiContext with structural
+HistoryLike/ModelLike so it compiles independently of core). Entry:
+`export const buildUi: BuildUi` in `src/ui/ui.ts`; main.ts supplies real objects.
 
 Visual language of the viewer (port CSS vars/fonts from viewer/index.html:8-120).
 Layout: header toolbar; left rail = fleet list (from `data.ships`) + file ops
