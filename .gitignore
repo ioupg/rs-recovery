@@ -31,3 +31,5 @@ tmp/
 
 # genAI API key for enhance_textures.py --ai (never commit)
 .gemini_key
+
+__pycache__/
