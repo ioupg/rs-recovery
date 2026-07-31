@@ -51,4 +51,3 @@ export interface PickTri {
   exit: Vec3 | null;
 }
 
-export type ViewportLayout = 'single' | 'quad';

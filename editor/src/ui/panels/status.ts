@@ -4,7 +4,7 @@
 import type { UiContext } from '../context';
 import { h } from '../dom';
 
-const HINT = '1-6 инструменты · X/Y/Z поворот (Shift обратно) · M симметрия · Tab виды · Del удалить · Ctrl+Z/Y';
+const HINT = '1–5 tools · 7–0 view · X/C/V rotate (Alt mirror, Shift reverse) · R orient · M symmetry · MMB/Alt+LMB orbit · RMB pan';
 
 export function buildStatusBar(host: HTMLElement, ctx: UiContext): { setStatus(text: string): void } {
   host.className = 'statusbar';
@@ -15,7 +15,7 @@ export function buildStatusBar(host: HTMLElement, ctx: UiContext): { setStatus(t
   host.append(left, h('span', 'spacer'), counts, hint);
 
   const refreshCounts = (): void => {
-    counts.textContent = `${ctx.model.doc.cubes.length} блоков · ${ctx.model.doc.wings.length} крыльев`;
+    counts.textContent = `${ctx.model.doc.cubes.length} blocks · ${ctx.model.doc.wings.length} wings`;
   };
   refreshCounts();
   ctx.model.subscribe(refreshCounts);

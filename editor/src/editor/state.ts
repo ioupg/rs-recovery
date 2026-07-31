@@ -2,9 +2,11 @@
    read/write through update() so every panel stays in sync. */
 
 import type { ShapeId, Unsubscribe } from '../core/types';
-import type { BuildOptions, ViewportLayout } from '../render/geometryTypes';
+import type { BuildOptions } from '../render/geometryTypes';
 
-export type Tool = 'select' | 'add' | 'erase' | 'paint' | 'wing' | 'plate';
+/** v2 tool set: wings merged into Build (buildKind picks the item family);
+    'systems' was 'paint', plate is per-face decoration */
+export type Tool = 'select' | 'build' | 'erase' | 'systems' | 'plate';
 
 export interface RenderSettings extends BuildOptions {
   edges: boolean;
@@ -18,7 +20,9 @@ export interface SymmetrySettings {
 }
 
 export class EditorState {
-  tool: Tool = 'add';
+  tool: Tool = 'build';
+  /** which item family the Build tool places */
+  buildKind: 'shape' | 'wing' = 'shape';
   activeShape: ShapeId = 0;
   activeOrient = 0;
   activeComp = 8;
@@ -29,7 +33,6 @@ export class EditorState {
     mode: 'box', ao: true, textures: true, plates: true,
     plateVariants: { quad: 1, slope: 0, tri: 0, eq: 0 }, edges: true, compColors: true,
   };
-  layout: ViewportLayout = 'single';
 
   private listeners = new Set<(keys: (keyof EditorState)[]) => void>();
 

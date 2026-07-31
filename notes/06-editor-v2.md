@@ -66,10 +66,10 @@ Full rebind; every binding is shown in tooltips and the context panel.
 | key | action |
 |-----|--------|
 | 1–5 | tools (Select, Build, Erase, Systems, Plates) |
-| 7 8 9 0 | view mode: Box · Plate · Mesh · Systems |
-| Z / X / C | rotate active item (or selection) −90° about world X / Y / Z |
-| Shift+Z/X/C | same, +90° |
-| Alt+Z/X/C | **mirror** along world X / Y / Z (through reflection tables — one keystroke instead of a rotation dance) |
+| 7 8 9 0 | view mode: Box · Panels · Mesh · Systems |
+| X / C / V | rotate active item (or selection) +90° about world X / Y / Z |
+| Shift+X/C/V | same, −90° |
+| Alt+X/C/V | **mirror** along world X / Y / Z (through reflection tables — one keystroke instead of a rotation dance) |
 | R / Shift+R | cycle the 24 orientations; in Plates tool: spin plate about the face normal |
 | Q / E | cycle item (Build) / system (Systems) / plate mesh (Plates) |
 | M | symmetry toggle |
@@ -78,8 +78,10 @@ Full rebind; every binding is shown in tooltips and the context panel.
 | G | toggle edges |
 | Del, Ctrl+Z/Y, Esc | delete / undo / redo / deselect |
 
-Rationale: Z-X-C sit under three adjacent fingers; the old X/Y/Z scatter is
-gone. Digits stay mnemonic: left hand row = tools, right half = views.
+Rationale: X-C-V sit under three adjacent fingers and X anchors the mnemonic
+(X key = X axis); the old X/Y/Z scatter is gone. Digits stay mnemonic:
+left hand row = tools, right half = views. (Implementation settled on X/C/V
+over the draft's Z/X/C — same adjacency, better anchor.)
 
 ### R7 — Contextual right panel
 The right panel's first tab is **bound to the active tool** (switching tool

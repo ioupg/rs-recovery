@@ -1,4 +1,4 @@
-/* "Материалы" tab: one expandable row per material slot, live-editing the
+/* "Materials" tab: one expandable row per material slot, live-editing the
    MaterialStore; reflects external changes (e.g. resetSlot) via subscribe. */
 
 import type { UiContext } from '../context';
@@ -7,10 +7,10 @@ import { button, h } from '../dom';
 
 type SliderKey = 'roughness' | 'metalness' | 'clearcoat' | 'clearcoatRoughness';
 const SLIDERS: { key: SliderKey; label: string }[] = [
-  { key: 'roughness', label: 'шероховатость' },
-  { key: 'metalness', label: 'металличность' },
-  { key: 'clearcoat', label: 'лак' },
-  { key: 'clearcoatRoughness', label: 'шероховатость лака' },
+  { key: 'roughness', label: 'roughness' },
+  { key: 'metalness', label: 'metalness' },
+  { key: 'clearcoat', label: 'clearcoat' },
+  { key: 'clearcoatRoughness', label: 'clearcoat rough.' },
 ];
 
 function slider(label: string, min: number, max: number): { row: HTMLLabelElement; input: HTMLInputElement; val: HTMLSpanElement } {
@@ -41,7 +41,7 @@ export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
     const colorRow = document.createElement('label');
     const colorInput = document.createElement('input');
     colorInput.type = 'color';
-    colorRow.append('цвет', colorInput);
+    colorRow.append('color', colorInput);
 
     const sliderEls = new Map<SliderKey, { input: HTMLInputElement; val: HTMLSpanElement }>();
     for (const s of SLIDERS) {
@@ -54,11 +54,11 @@ export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
     const emissiveRow = document.createElement('label');
     const emissiveInput = document.createElement('input');
     emissiveInput.type = 'color';
-    emissiveRow.append('свечение', emissiveInput);
-    const ei = slider('интенсивность свечения', 0, 2);
+    emissiveRow.append('emissive', emissiveInput);
+    const ei = slider('emissive intensity', 0, 2);
     body.append(emissiveRow, ei.row);
 
-    const resetBtn = button('сброс', { class: 'reset-btn' });
+    const resetBtn = button('reset', { class: 'reset-btn' });
     body.append(resetBtn);
 
     row.append(head, body);

@@ -113,8 +113,12 @@ export function rotDir(o: number, v: Vec3): [number, number, number] {
 const key = (pts: [number, number, number][]) =>
   pts.map(p => p.join(',')).sort().join('|');
 
-const reflPts = (pts: [number, number, number][]): [number, number, number][] =>
-  pts.map(p => [1 - p[0], p[1], p[2]]);
+const reflPts = (axis: 0 | 1 | 2, pts: [number, number, number][]): [number, number, number][] =>
+  pts.map(p => {
+    const q: [number, number, number] = [...p];
+    q[axis] = 1 - q[axis];
+    return q;
+  });
 
 const matMul = (a: readonly number[], b: readonly number[]): number[] => {
   const r = new Array<number>(9);
@@ -123,44 +127,57 @@ const matMul = (a: readonly number[], b: readonly number[]): number[] => {
       r[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
   return r;
 };
-/** conjugate/sandwich with S: negates the off-diagonal x-row/x-column entries */
-const sandwich = (m: readonly number[]): number[] =>
-  [m[0], -m[1], -m[2], -m[3], m[4], m[5], -m[6], m[7], m[8]];
+/** conjugate/sandwich with S = diag(±1) flipping `axis`: negates the
+    off-diagonal entries of that row and column */
+const sandwich = (axis: 0 | 1 | 2, m: readonly number[]): number[] =>
+  m.map((v, i) => {
+    const r = Math.floor(i / 3), c = i % 3;
+    return (r === axis) !== (c === axis) ? -v : v;
+  });
 const matIndex = (m: readonly number[]): number =>
   ORIENTATIONS.findIndex(n => n.every((v, i) => v === m[i]));
 
-function buildReflTable(cornersOf: (o: number) => [number, number, number][]): number[] {
+function buildReflTable(axis: 0 | 1 | 2, cornersOf: (o: number) => [number, number, number][]): number[] {
   const base = key(cornersOf(0));           // o=0 is the identity
-  const target = key(reflPts(cornersOf(0)));
+  const target = key(reflPts(axis, cornersOf(0)));
   const t = Array.from({ length: 24 }, (_, i) => i).find(i => {
     if (key(cornersOf(i)) !== target) return false;
     // (S·R_t)² = I  ⇔  S·R_t·S = R_t⁻¹ = R_tᵀ  ⇔  sandwich(R_t) is R_t transposed
-    const m = ORIENTATIONS[i], s = sandwich(m);
+    const m = ORIENTATIONS[i], s = sandwich(axis, m);
     return s[0] === m[0] && s[1] === m[3] && s[2] === m[6] && s[3] === m[1]
       && s[4] === m[4] && s[5] === m[7] && s[6] === m[2] && s[7] === m[5] && s[8] === m[8];
   });
   if (t === undefined) throw new Error(`no involutive mirror for base ${base}`);
   const rt = ORIENTATIONS[t];
   return Array.from({ length: 24 }, (_, o) => {
-    const idx = matIndex(matMul(sandwich(ORIENTATIONS[o]), rt));
+    const idx = matIndex(matMul(sandwich(axis, ORIENTATIONS[o]), rt));
     if (idx < 0) throw new Error(`reflection left the group at o=${o}`);
     return idx;
   });
 }
 
-/** REFLECT_X_SHAPE[shape][o] → o′ such that (shape,o′) is the x-mirror of (shape,o) */
-export const REFLECT_X_SHAPE: Record<ShapeId, readonly number[]> = Object.fromEntries(
-  (Object.keys(FACES).map(Number) as ShapeId[]).map(s => [
-    s, buildReflTable(o => SHAPE_CORNERS[s].map(i => rot(o, corner(i)))),
-  ]),
-) as unknown as Record<ShapeId, readonly number[]>;
+const AXES = [0, 1, 2] as const;
 
-/** REFLECT_X_WING[kind][o] → o′ for wing rings */
-export const REFLECT_X_WING: Record<number, readonly number[]> = Object.fromEntries(
-  WING_KINDS.map(k => [
-    k, buildReflTable(o => WING_RING[k].map(i => rot(o, corner(i)))),
-  ]),
-);
+/** REFLECT_SHAPE[axis][shape][o] → o′ such that (shape,o′) is the mirror of
+    (shape,o) across that world axis */
+export const REFLECT_SHAPE: readonly Record<ShapeId, readonly number[]>[] = AXES.map(a =>
+  Object.fromEntries(
+    (Object.keys(FACES).map(Number) as ShapeId[]).map(s => [
+      s, buildReflTable(a, o => SHAPE_CORNERS[s].map(i => rot(o, corner(i)))),
+    ]),
+  ) as unknown as Record<ShapeId, readonly number[]>);
+
+/** REFLECT_WING[axis][kind][o] → o′ for wing rings */
+export const REFLECT_WING: readonly Record<number, readonly number[]>[] = AXES.map(a =>
+  Object.fromEntries(
+    WING_KINDS.map(k => [
+      k, buildReflTable(a, o => WING_RING[k].map(i => rot(o, corner(i)))),
+    ]),
+  ));
+
+/** the fleet's mirror axis — kept as the names symmetry.ts was built on */
+export const REFLECT_X_SHAPE = REFLECT_SHAPE[0];
+export const REFLECT_X_WING = REFLECT_WING[0];
 
 /* ── 90° world-axis rotation steps through the group ────────────
    Composing a quarter-turn about a world axis onto an orientation stays inside

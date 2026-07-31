@@ -30,6 +30,13 @@ export interface UiActions {
   exportGlb(): void;
   fitView(): void;
   validateNow(): Issue[];
+  /** open the "Load template design" modal */
+  openLoadDialog(): void;
+  /** rotate the active piece / selection ±90° about a world axis */
+  rotateActive(axis: 0 | 1 | 2, dir: 1 | -1): void;
+  /** mirror the active piece / selection along a world axis */
+  mirrorActive(axis: 0 | 1 | 2): void;
+  deleteSelection(): void;
 }
 
 export interface UiContext {
@@ -47,7 +54,9 @@ export interface UiRefs {
   stage: HTMLElement;
   /** transient status-line setter (hover cell, tool hints) */
   setStatus(text: string): void;
-  /** canvas in the Сборка tab for the active-piece preview (render layer draws it) */
+  /** canvas in the Build page for the active-piece preview (render layer draws it) */
   preview: HTMLCanvasElement;
+  /** opens the load-template modal (actions.openLoadDialog binds to this) */
+  openLoadDialog(): void;
 }
 export type BuildUi = (root: HTMLElement, ctx: UiContext) => UiRefs;

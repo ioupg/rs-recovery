@@ -1,48 +1,51 @@
-/* Right panel shell: tab strip [Сборка | Материалы | Инфо] over the three
-   per-tab builders. */
+/* Right panel shell: tab strip [<active tool> | Materials | Info]. The first
+   tab is contextual — its label follows the active tool and switching tools
+   activates it. */
 
 import type { UiContext } from '../context';
 import { h } from '../dom';
-import { buildBuildTab } from './build';
+import { buildToolPanel, toolTabLabel } from './toolPanel';
 import { buildMaterialsTab } from './materials';
 import { buildInfoTab } from './info';
-
-const TABS = [
-  { id: 'build', label: 'Сборка' },
-  { id: 'materials', label: 'Материалы' },
-  { id: 'info', label: 'Инфо' },
-] as const;
 
 export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: HTMLCanvasElement } {
   host.className = 'rightpanel';
 
   const tabsRow = h('div', 'tabs');
-  const tabBtns = new Map<string, HTMLButtonElement>();
-  for (const t of TABS) {
-    const b = h('button', undefined, t.label);
-    b.type = 'button';
-    tabBtns.set(t.id, b);
-    tabsRow.append(b);
-  }
+  const toolTab = h('button', undefined, toolTabLabel(ctx.state.tool));
+  const matTab = h('button', undefined, 'Materials');
+  const infoTab = h('button', undefined, 'Info');
+  for (const b of [toolTab, matTab, infoTab]) b.type = 'button';
+  tabsRow.append(toolTab, matTab, infoTab);
   host.append(tabsRow);
 
-  const buildPanel = h('div', 'tabpanel');
+  const toolPanel = h('div', 'tabpanel');
   const materialsPanel = h('div', 'tabpanel');
   const infoPanel = h('div', 'tabpanel');
-  const panels = new Map<string, HTMLElement>([
-    ['build', buildPanel], ['materials', materialsPanel], ['info', infoPanel],
-  ]);
-  host.append(buildPanel, materialsPanel, infoPanel);
+  host.append(toolPanel, materialsPanel, infoPanel);
 
-  const activate = (id: string): void => {
-    for (const [pid, p] of panels) p.classList.toggle('active', pid === id);
-    for (const [pid, b] of tabBtns) b.classList.toggle('active', pid === id);
+  const tabs: [HTMLButtonElement, HTMLElement][] = [
+    [toolTab, toolPanel], [matTab, materialsPanel], [infoTab, infoPanel],
+  ];
+  const activate = (which: HTMLButtonElement): void => {
+    for (const [b, p] of tabs) {
+      b.classList.toggle('active', b === which);
+      p.classList.toggle('active', b === which);
+    }
   };
-  for (const t of TABS) tabBtns.get(t.id)!.onclick = () => activate(t.id);
-  activate('build');
+  for (const [b] of tabs) b.onclick = () => activate(b);
+  activate(toolTab);
 
-  const { preview } = buildBuildTab(buildPanel, ctx);
+  const { preview } = buildToolPanel(toolPanel, ctx);
   buildMaterialsTab(materialsPanel, ctx);
   buildInfoTab(infoPanel, ctx);
+
+  ctx.state.subscribe(keys => {
+    if (keys.includes('tool')) {
+      toolTab.textContent = toolTabLabel(ctx.state.tool);
+      activate(toolTab);
+    }
+  });
+
   return { preview };
 }

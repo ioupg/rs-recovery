@@ -116,3 +116,112 @@ export class ShapePreview {
     this.renderer.dispose();
   }
 }
+
+/* ── shared thumbnail renderer ──────────────────────────────────
+   One hidden canvas + renderer for every picker thumbnail in the UI
+   (browsers cap WebGL contexts, so per-thumbnail renderers are not an
+   option). Renders synchronously and hands back a data URL. */
+
+export interface ThumbSpec {
+  kind: 'cube' | 'wing' | 'mesh';
+  shape?: ShapeId;
+  wingKind?: number;
+  o?: number;
+  color: string;
+  /** raw cell-space submeshes for kind 'mesh' (plates, cages) */
+  sub?: { pos: number[]; nrm?: number[]; idx: number[] }[];
+}
+
+let thumb: {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  content: THREE.Group;
+} | null = null;
+
+function thumbCtx(size: number) {
+  if (!thumb) {
+    const canvas = document.createElement('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
+    camera.position.set(1.9, 1.5, 2.4);
+    camera.lookAt(0, -0.03, 0);
+    scene.add(new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 1.15));
+    const key = new THREE.DirectionalLight(0xfff2dc, 1.2);
+    key.position.set(3, 5, 2);
+    scene.add(key);
+    const content = new THREE.Group();
+    scene.add(content);
+    thumb = { renderer, scene, camera, content };
+  }
+  thumb.renderer.setSize(size, size, false);
+  return thumb;
+}
+
+/** render a picker thumbnail; synchronous, returns a PNG data URL */
+export function renderThumbnail(spec: ThumbSpec, size = 56): string {
+  const t = thumbCtx(size);
+  for (const child of t.content.children.slice()) {
+    t.content.remove(child);
+    child.traverse(o3 => {
+      const d = o3 as THREE.Mesh;
+      if (d.geometry) d.geometry.dispose();
+      if (d.material) (Array.isArray(d.material) ? d.material : [d.material]).forEach(m => m.dispose());
+    });
+  }
+
+  const material = new THREE.MeshStandardMaterial({
+    color: spec.color, roughness: 0.7, metalness: 0.15,
+    side: THREE.DoubleSide, flatShading: true,
+  });
+
+  if (spec.kind === 'mesh' && spec.sub) {
+    /* cell-space mesh, centered; scaled so its bounding diagonal reads well */
+    const pos: number[] = [];
+    for (const s of spec.sub)
+      for (const i of s.idx)
+        pos.push(s.pos[i * 3] - 0.5, s.pos[i * 3 + 1] - 0.5, s.pos[i * 3 + 2] - 0.5);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const c = bb.getCenter(new THREE.Vector3());
+    const ext = bb.getSize(new THREE.Vector3()).length() || 1;
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.position.copy(c.negate());
+    const wrap = new THREE.Group();
+    wrap.add(mesh);
+    wrap.scale.setScalar(1.55 / ext);
+    t.content.add(wrap);
+  } else {
+    const loops: (readonly number[])[] = spec.kind === 'wing'
+      ? (WING_RING[spec.wingKind ?? 0] ? [WING_RING[spec.wingKind ?? 0]] : [])
+      : [...FACES[spec.shape ?? 0]];
+    const pos: number[] = [];
+    const outline: number[] = [];
+    for (const loop of loops) {
+      const verts = loop.map(ci => {
+        const c = corner(ci);
+        return rotDir(spec.o ?? 0, [c[0] - 0.5, c[1] - 0.5, c[2] - 0.5]);
+      });
+      for (let i = 1; i < verts.length - 1; i++)
+        pos.push(...verts[0], ...verts[i], ...verts[i + 1]);
+      for (let i = 0; i < verts.length; i++)
+        outline.push(...verts[i], ...verts[(i + 1) % verts.length]);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.computeVertexNormals();
+    if (spec.kind === 'wing') { material.transparent = true; material.opacity = 0.85; }
+    t.content.add(new THREE.Mesh(geo, material));
+    const lgeo = new THREE.BufferGeometry();
+    lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
+    t.content.add(new THREE.LineSegments(lgeo,
+      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6 })));
+  }
+
+  t.renderer.render(t.scene, t.camera);
+  return t.renderer.domElement.toDataURL();
+}

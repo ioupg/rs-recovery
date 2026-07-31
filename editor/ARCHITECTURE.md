@@ -22,15 +22,22 @@ viewer (`../viewer`). Build: `npm run build` → `../viewer/editor` (deployed by
 ## Module map
 
 ```
-src/core/    types.ts tables.ts materials.ts   (done — read them first)
+src/core/    types.ts tables.ts materials.ts systems.ts   (read them first)
              model.ts commands.ts history.ts symmetry.ts validation.ts io.ts
-src/data/    loader.ts                          (done)
-src/render/  scene.ts materialCache.ts geometry.ts ao.ts chamfer.ts atlas.ts
-             pick.ts shipView.ts viewports.ts exportGlb.ts
-src/editor/  state.ts tools.ts controller.ts
-src/ui/      style.css ui.ts panels/*.ts
+src/data/    loader.ts plates.ts
+src/render/  scene.ts materialCache.ts textureCache.ts geometry.ts ao.ts
+             atlas.ts facets.ts pick.ts shipView.ts viewports.ts viewCube.ts
+             shapePreview.ts exportGlb.ts
+src/editor/  state.ts tools.ts controller.ts symmetryExpand.ts
+src/ui/      style.css ui.ts context.ts dom.ts panels/*.ts
 src/main.ts  (integration)
 ```
+
+v2 registries (2026-07-31): `core/systems.ts` — data-driven system roster
+(ids 0..9 frozen archive block, ids ≥ 10 JSON-only registrations; material
+slots derive from it); `data/plates.ts` — every mountable plate mesh behind
+`PlateRegistry` (faceType quad/tri/slope/diag/cut). `ShipDoc.extras` carries
+the lattice/deco/guy prototype elements (notes/07-authoring.md §4.3).
 
 ## Core contracts
 
@@ -180,23 +187,27 @@ selection highlight (overlay of selected cubes' facets, additive/emissive),
 ghost preview mesh (single shape solid at cell, semi-transparent, red when invalid).
 Subscribes to model/materials/options; `rebuild()` disposes and rebuilds on change.
 
-### viewports.ts
+### viewports.ts + viewCube.ts
 
 ```ts
-export type ViewportLayout = 'single' | 'quad';
 export class Viewports {
   constructor(container: HTMLElement, renderer: THREE.WebGLRenderer);
-  layout: ViewportLayout;                   // single = perspective; quad = persp + top + front + side orthos
-  render(scene: THREE.Scene): void;         // scissored per viewport
+  render(scene: THREE.Scene): void;
+  update(dt: number): void;                 // damped orbit / snap easing, once per frame
+  getOrbit(): { th: number; ph: number };
+  snapTo(th: number, ph: number): void;     // eased canonical views (view cube)
+  orbitBy(dx: number, dy: number): void;
   pickRay(clientX: number, clientY: number): { camera: THREE.Camera; ndc: THREE.Vector2 } | null;
   fit(bounds: { min: Vec3; max: Vec3 }): void;
   onResize(): void;
 }
 ```
 
-Controls: **MMB or Alt+LMB** orbit (perspective only), **RMB** pan, **wheel** zoom
-— LMB belongs to tools. Port the damped orbit feel from viewer 716-734. Ortho
-cameras: top (−y), front (−z), side (−x), with zoom/pan.
+Single perspective viewport (the quad/ortho layout was removed in v2 — view
+snapping replaced it). Controls: **MMB or Alt+LMB** orbit, **RMB** pan,
+**wheel** zoom — LMB belongs to tools. Damped orbit feel from viewer 716-734.
+`ViewCube` (render/viewCube.ts) is a 2D-canvas overlay: click a face to snap,
+drag to orbit, ⌂ fits.
 
 ### scene.ts
 
@@ -215,35 +226,58 @@ ortho views (leave fog out entirely for the editor).
 ### state.ts — single mutable EditorState with change events
 
 ```ts
-tool: 'select' | 'add' | 'erase' | 'paint' | 'wing';
+tool: 'select' | 'build' | 'erase' | 'systems' | 'plate';
+buildKind: 'shape' | 'wing';                // Build places both item families
 activeShape: ShapeId; activeOrient: number; activeComp: number; activeWingKind: number;
 selection: Set<number>;                     // uids
 symmetry: { on: boolean; planeX2: number };
 render: BuildOptions & { edges: boolean; compColors: boolean };
-layout: ViewportLayout;
-plateVariant: number;
 ```
 
 ### tools/controller
 
+`editor/tools.ts` is the single source of truth for tools and view modes
+(ids, icons, shortcuts, per-tool auto view mode) — the header toolbar and the
+keymap both read it. A tool with `needsMode` switches the render mode on
+entry and the controller restores the previous mode on exit unless the user
+changed modes manually meanwhile (Systems tool → Systems view; Plates → Mesh).
+
 Pointer flow: hover → raycast pick → tool decides ghost/cursor; LMB down/up/click
 → tool builds command (with symmetry expansion) → `history.run`. Drag-move in
 select tool: XZ-plane constrained integer drag (Shift = Y), one `MoveEntities` on
-drop, pre-checked for collisions. Keyboard: 1-5 tools, R/Shift+R rotate active
-orientation (cycle 24), Q/E cycle compartment, Del delete selection, Ctrl+Z/Y
-undo/redo, F fit view, Tab toggle single/quad, X toggle symmetry.
+drop, pre-checked for collisions.
+
+Keyboard (see editor/tools.ts + controller onKey): 1–5 tools · 7/8/9/0 view
+modes · X/C/V rotate ±90° about world X/Y/Z (Shift reverses) · Alt+X/C/V
+mirror along an axis (REFLECT_SHAPE/REFLECT_WING tables, all three axes) ·
+R/Shift+R cycle 24 orientations or spin a hovered plate · Q/E cycle the
+active item/system/plate mesh · M symmetry · F fit · P plates · G edges ·
+Del delete · Ctrl+Z/Y undo/redo · Esc deselect.
 
 ## UI
 
-The UI builds against `src/ui/context.ts` (done — UiContext with structural
+The UI builds against `src/ui/context.ts` (UiContext with structural
 HistoryLike/ModelLike so it compiles independently of core). Entry:
 `export const buildUi: BuildUi` in `src/ui/ui.ts`; main.ts supplies real objects.
 
-Visual language of the viewer (port CSS vars/fonts from viewer/index.html:8-120).
-Layout: header toolbar; left rail = fleet list (from `data.ships`) + file ops
-(new / import JSON / export JSON / export GLB); right panel = tabs [Build |
-Materials | Info]; status bar = validation issues + counts + hover cell.
-Build tab: shape picker (4), orientation stepper (0..23 + visual), compartment
-palette (10 swatches), wing kind picker (5). Materials tab: slot list with color
-swatch + sliders (color, roughness, metalness, emissive+intensity, clearcoat(+R),
-reset per slot). Info: ГОСТ-stamp style ship card (viewer stamp(), 1121-1145).
+Visual language of the viewer (CSS vars/fonts from viewer/index.html:8-120).
+Chrome is mono-language English; data strings (ship names, the exe's system
+names, the ГОСТ stamp) stay Russian by design.
+
+Layout: header = file ops (New / Load… / Import / Save / GLB) + icon tool
+buttons + view modes + toggles + symmetry + undo/redo + fit; stage hosts the
+canvas + view cube; right panel = tabs [<active tool> | Materials | Info] —
+the first tab is contextual, renamed and activated with the tool:
+
+- **Select** — selection info, rotate/mirror rows, delete.
+- **Build** — piece preview canvas, unified item picker (4 shapes + 5 wings
+  as offscreen-rendered thumbnails, `renderThumbnail` in shapePreview.ts),
+  orientation stepper + rotate/mirror rows, system palette.
+- **Erase** — hint only.
+- **Systems** — system palette with live per-system counts.
+- **Plates** — plate mesh picker.
+
+Every tool page ends with its shortcut legend. Fleet loading is a modal
+(`panels/loadModal.ts`, ship cards grouped by rank) opened from the header.
+Materials tab: slot list (from the systems registry) with color swatch +
+sliders. Info: ГОСТ-stamp ship card + system ledger + validation issues.

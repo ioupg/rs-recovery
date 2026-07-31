@@ -4,7 +4,7 @@
 import './style.css';
 import type { BuildUi } from './context';
 import { buildHeader } from './panels/header';
-import { buildRail } from './panels/rail';
+import { buildLoadModal } from './panels/loadModal';
 import { buildRightPanel } from './panels/rightPanel';
 import { buildStatusBar } from './panels/status';
 
@@ -14,19 +14,18 @@ export const buildUi: BuildUi = (root, ctx) => {
 
   const header = document.createElement('header');
   const main = document.createElement('main');
-  const rail = document.createElement('nav');
   const stage = document.createElement('div');
   stage.className = 'stage';
   const rightPanel = document.createElement('aside');
   const statusBar = document.createElement('div');
 
-  main.append(rail, stage, rightPanel);
+  main.append(stage, rightPanel);
   root.append(header, main, statusBar);
 
   buildHeader(header, ctx);
-  buildRail(rail, ctx);
   const { preview } = buildRightPanel(rightPanel, ctx);
   const { setStatus } = buildStatusBar(statusBar, ctx);
+  const { open: openLoadDialog } = buildLoadModal(root, ctx);
 
-  return { stage, setStatus, preview };
+  return { stage, setStatus, preview, openLoadDialog };
 };

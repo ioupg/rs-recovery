@@ -83,7 +83,7 @@ export function buildInfoTab(host: HTMLElement, ctx: UiContext): void {
 
     const issues = ctx.actions.validateNow();
     const issuesBox = h('div', 'issues');
-    if (issues.length === 0) issuesBox.append(h('div', 'issues-empty', 'проблем не найдено'));
+    if (issues.length === 0) issuesBox.append(h('div', 'issues-empty', 'no issues found'));
     else for (const issue of issues) issuesBox.append(renderIssue(issue));
     host.append(issuesBox);
   };

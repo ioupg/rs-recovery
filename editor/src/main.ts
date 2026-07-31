@@ -17,6 +17,7 @@ import { initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
 import { Viewports } from './render/viewports';
 import { ShapePreview } from './render/shapePreview';
+import { ViewCube } from './render/viewCube';
 import { exportGlb } from './render/exportGlb';
 import { compSlot } from './core/materials';
 import { buildUi } from './ui/ui';
@@ -49,6 +50,7 @@ async function init(): Promise<void> {
   /* forward references filled after the scene exists */
   let view: ShipView;
   let viewports: Viewports;
+  let controller: EditorController;
   let fitShadow: (b: { min: readonly number[]; max: readonly number[] }) => void;
 
   const loadDoc = (doc: ShipDoc): void => {
@@ -68,7 +70,7 @@ async function init(): Promise<void> {
     importJsonFile: (file) => {
       file.text()
         .then(t => loadDoc(importShipJson(JSON.parse(t), file.name.replace(/\.json$/i, ''))))
-        .catch(e => refs.setStatus(`импорт: ${String(e)}`));
+        .catch(e => refs.setStatus(`import failed: ${String(e)}`));
     },
     exportJson: () => {
       const doc: ShipDoc = { ...model.doc, materials: materials.diff() };
@@ -77,13 +79,17 @@ async function init(): Promise<void> {
     },
     exportGlb: () => {
       exportGlb(sceneCtx.shipRoot, model.doc.meta.name)
-        .catch(e => refs.setStatus(`GLB: ${String(e)}`));
+        .catch(e => refs.setStatus(`GLB export failed: ${String(e)}`));
     },
     fitView: () => {
       const b = view?.boundsOfDoc();
       if (b && viewports) { viewports.fit(b); fitShadow(b); }
     },
     validateNow: () => validate(model, data.systems),
+    openLoadDialog: () => refs.openLoadDialog(),
+    rotateActive: (axis, dir) => controller.rotateAxis(axis, dir),
+    mirrorActive: axis => controller.mirrorAxis(axis),
+    deleteSelection: () => controller.deleteSelection(),
   };
 
   const ctx: UiContext = { state, history, materials, model, data, actions };
@@ -101,17 +107,19 @@ async function init(): Promise<void> {
   view.setDoc(model.doc);
   view.setOptions(state.render);
 
-  new EditorController({
+  controller = new EditorController({
     state, model, history, view, viewports, canvas, data,
     overlay: sceneCtx.overlayRoot,
     setStatus: refs.setStatus,
     fitView: actions.fitView,
   });
 
-  /* active-piece preview in the Сборка tab */
+  const viewCube = new ViewCube(refs.stage, viewports, actions.fitView);
+
+  /* active-piece preview in the Build page */
   const piecePreview = new ShapePreview(refs.preview);
   const refreshPreview = (): void => {
-    const wing = state.tool === 'wing';
+    const wing = state.buildKind === 'wing';
     piecePreview.update({
       kind: wing ? 'wing' : 'cube',
       shape: state.activeShape,
@@ -121,7 +129,7 @@ async function init(): Promise<void> {
     });
   };
   state.subscribe(keys => {
-    if (keys.some(k => k === 'activeShape' || k === 'activeOrient'
+    if (keys.some(k => k === 'activeShape' || k === 'activeOrient' || k === 'buildKind'
         || k === 'activeComp' || k === 'activeWingKind' || k === 'tool'))
       refreshPreview();
   });
@@ -147,7 +155,6 @@ async function init(): Promise<void> {
   state.subscribe(keys => {
     if (keys.includes('render')) { view.setOptions(state.render); scheduleRebuild(); }
     if (keys.includes('selection')) view.setSelection(state.selection);
-    if (keys.includes('layout')) viewports.layout = state.layout;
   });
 
   new ResizeObserver(() => viewports.onResize()).observe(refs.stage);
@@ -159,6 +166,7 @@ async function init(): Promise<void> {
     viewports.update((now - last) / 1000);
     last = now;
     viewports.render(sceneCtx.scene);
+    viewCube.update();
   };
   requestAnimationFrame(tick);
 
@@ -167,5 +175,5 @@ async function init(): Promise<void> {
 
 init().catch(e => {
   const el = document.getElementById('app');
-  if (el) el.textContent = `ошибка запуска: ${String(e)}`;
+  if (el) el.textContent = `startup failed: ${String(e)}`;
 });

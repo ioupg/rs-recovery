@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FACES, FACE_SLOT, ORIENTATIONS, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
+  FACES, FACE_SLOT, ORIENTATIONS, REFLECT_SHAPE, REFLECT_WING, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
   WING_RING, corner, rot, rotateOrient,
 } from './tables';
 import type { ShapeId } from './types';
@@ -34,6 +34,29 @@ describe('tables', () => {
     for (const k of Object.keys(WING_RING).map(Number))
       for (let o = 0; o < 24; o++)
         expect(REFLECT_X_WING[k][REFLECT_X_WING[k][o]]).toBe(o);
+  });
+
+  it('y/z reflection tables: involutions reproducing mirrored corner sets', () => {
+    const key = (pts: number[][]) => pts.map(p => p.join(',')).sort().join('|');
+    for (const axis of [1, 2] as const) {
+      for (const s of Object.keys(FACES).map(Number) as ShapeId[]) {
+        for (let o = 0; o < 24; o++) {
+          const r = REFLECT_SHAPE[axis][s][o];
+          expect(REFLECT_SHAPE[axis][s][r]).toBe(o);
+          const mirrored = SHAPE_CORNERS[s].map(i => {
+            const p = [...rot(o, corner(i))];
+            p[axis] = 1 - p[axis];
+            return p;
+          });
+          const got = SHAPE_CORNERS[s].map(i => rot(r, corner(i)) as unknown as number[]);
+          expect(key(got)).toBe(key(mirrored));
+        }
+      }
+      for (const k of Object.keys(WING_RING).map(Number))
+        for (let o = 0; o < 24; o++)
+          expect(REFLECT_WING[axis][k][REFLECT_WING[axis][k][o]]).toBe(o);
+    }
+    expect(REFLECT_SHAPE[0]).toBe(REFLECT_X_SHAPE);   // the alias stays bound
   });
 
   it('face-slot mapping covers every face and matches the exe plate census', () => {

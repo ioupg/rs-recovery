@@ -4,9 +4,11 @@
 import * as THREE from 'three';
 import type { Cube, ShapeId, Vec3, Wing } from '../core/types';
 import {
-  COMP_NAMES, SLOT_AXES, WING_NAMES, plateCanonical, plateFaceDir, rotateOrient,
+  REFLECT_SHAPE, REFLECT_WING, SLOT_AXES, WING_NAMES, plateCanonical, plateFaceDir, rotateOrient,
 } from '../core/tables';
 import type { PlateSlot } from '../core/types';
+import type { RenderMode } from '../render/geometryTypes';
+import { MODE_DEFS, TOOL_DEFS, toolDef } from './tools';
 import { mountedPlatePositions } from '../render/geometry';
 import type { GameData } from '../data/loader';
 import type { ShipModel } from '../core/model';
@@ -57,6 +59,10 @@ export class EditorController {
 
   private lastPointer: { x: number; y: number } | null = null;
 
+  /** render mode saved before a tool auto-switched the view */
+  private autoMode: RenderMode | null = null;
+  private applyingAutoMode = false;
+
   constructor(o: ControllerOpts) {
     this.o = o;
     const c = o.canvas;
@@ -75,15 +81,37 @@ export class EditorController {
         this.o.view.setGhost(null);
         this.o.view.setPlateGhost(null, true);
         this.cancelGesture();
+        this.applyAutoViewMode();
       }
+      /* a render change we didn't make = the user took manual control */
+      if (keys.includes('render') && !this.applyingAutoMode) this.autoMode = null;
       if (keys.includes('symmetry'))
         this.o.view.setSymmetryPlane(this.o.state.symmetry.on ? this.o.state.symmetry.planeX2 : null);
       /* rotating or re-picking from the keyboard must update the ghost without
          waiting for the mouse to move */
-      if (keys.some(k => k === 'activeOrient' || k === 'activeShape'
+      if (keys.some(k => k === 'activeOrient' || k === 'activeShape' || k === 'buildKind'
           || k === 'activeComp' || k === 'activeWingKind' || k === 'symmetry'))
         this.refreshHover();
     });
+  }
+
+  /** tools that edit state invisible in the current view switch the view and
+      restore it (unless the user changed modes themselves meanwhile) */
+  private applyAutoViewMode(): void {
+    const { state } = this.o;
+    const need = toolDef(state.tool).needsMode;
+    const setMode = (mode: RenderMode): void => {
+      this.applyingAutoMode = true;
+      state.update({ render: { ...state.render, mode } });
+      this.applyingAutoMode = false;
+    };
+    if (need && state.render.mode !== need) {
+      if (this.autoMode === null) this.autoMode = state.render.mode;
+      setMode(need);
+    } else if (!need && this.autoMode !== null) {
+      setMode(this.autoMode);
+      this.autoMode = null;
+    }
   }
 
   /* ── picking ─────────────────────────────────────────────── */
@@ -142,19 +170,19 @@ export class EditorController {
     if (!this.lastPointer || this.gesture) return;
     const { x: cx, y: cy } = this.lastPointer;
     const { state, view, setStatus } = this.o;
-    if (state.tool === 'add' || state.tool === 'wing') {
+    if (state.tool === 'build') {
+      const wing = state.buildKind === 'wing';
       const cell = this.targetCell(cx, cy);
       if (!cell) { view.setGhost(null); setStatus(''); return; }
-      const specs = state.tool === 'add' ? this.cubeSpecsAt(cell) : null;
-      const wspecs = state.tool === 'wing' ? this.wingSpecsAt(cell) : null;
-      const valid = specs ? specs.every(s => this.cellFree([s.x, s.y, s.z]))
-                          : wspecs!.every(s => !this.o.model.cubeAt(s.x, s.y, s.z));
-      view.setGhost(state.tool === 'add'
-        ? { x: cell[0], y: cell[1], z: cell[2],
-            shape: state.activeShape, o: state.activeOrient, valid }
-        : { x: cell[0], y: cell[1], z: cell[2], shape: 0,
-            o: state.activeOrient, valid, kind: 'wing', wingKind: state.activeWingKind });
-      setStatus(`${state.tool === 'add' ? 'блок' : WING_NAMES[state.activeWingKind]} → [${cell.join(', ')}]${valid ? '' : ' · занято'}`);
+      const valid = wing
+        ? this.wingSpecsAt(cell).every(s => !this.o.model.cubeAt(s.x, s.y, s.z))
+        : this.cubeSpecsAt(cell).every(s => this.cellFree([s.x, s.y, s.z]));
+      view.setGhost(wing
+        ? { x: cell[0], y: cell[1], z: cell[2], shape: 0,
+            o: state.activeOrient, valid, kind: 'wing', wingKind: state.activeWingKind }
+        : { x: cell[0], y: cell[1], z: cell[2],
+            shape: state.activeShape, o: state.activeOrient, valid });
+      setStatus(`${wing ? WING_NAMES[state.activeWingKind] : 'block'} → [${cell.join(', ')}]${valid ? '' : ' · occupied'}`);
     } else {
       const hit = this.pickAt(cx, cy);
       if (!hit) { setStatus(''); return; }
@@ -162,20 +190,20 @@ export class EditorController {
       if (!ent) return;
       if (state.tool === 'plate' && 'shape' in ent) {
         const res = this.plateSlotFor(ent as Cube, hit.tri.exit);
-        if (!res) { view.setPlateGhost(null, true); setStatus('здесь плита не ставится'); return; }
+        if (!res) { view.setPlateGhost(null, true); setStatus('no plate mounts here'); return; }
         const on = this.plateState(ent as Cube, res);
         const ghostO = on ? (ent as Cube).slots![res.idx].o : res.canonO;
         const pos = hit.tri.exit
           ? mountedPlatePositions(ent as Cube, ghostO, this.o.data, state.render.plateVariants)
           : null;
         view.setPlateGhost(pos, !on);
-        setStatus(`грань [${ent.x}, ${ent.y}, ${ent.z}] · плита ${on ? 'установлена — клик снимает · R поворот' : 'снята — клик ставит'}`);
+        setStatus(`face [${ent.x}, ${ent.y}, ${ent.z}] · plate ${on ? 'mounted — click removes · R spins' : 'absent — click mounts'}`);
         return;
       }
       view.setPlateGhost(null, true);
       setStatus('shape' in ent
-        ? `куб [${ent.x}, ${ent.y}, ${ent.z}] · ${COMP_NAMES[(ent as Cube).comp]} · o${ent.o}`
-        : `крыло ${WING_NAMES[(ent as Wing).kind]} [${ent.x}, ${ent.y}, ${ent.z}]`);
+        ? `block [${ent.x}, ${ent.y}, ${ent.z}] · ${this.o.data.systems.byId((ent as Cube).comp)?.name ?? `system ${(ent as Cube).comp}`} · o${ent.o}`
+        : `wing ${WING_NAMES[(ent as Wing).kind]} [${ent.x}, ${ent.y}, ${ent.z}]`);
     }
   }
 
@@ -185,10 +213,9 @@ export class EditorController {
     if (e.button !== 0 || e.altKey) return;         // navigation owns these
     const { state } = this.o;
     switch (state.tool) {
-      case 'add': return this.doAdd(e);
-      case 'wing': return this.doAddWing(e);
+      case 'build': return state.buildKind === 'wing' ? this.doAddWing(e) : this.doAdd(e);
       case 'erase': return this.doErase(e);
-      case 'paint': return this.doPaint(e);
+      case 'systems': return this.doAssignSystem(e);
       case 'plate': return this.doPlate(e);
       case 'select': return this.beginSelect(e);
     }
@@ -255,7 +282,7 @@ export class EditorController {
     g.delta = [Math.round(d.x), Math.round(d.y), Math.round(d.z)];
     this.showDragPreview(g.delta);
     const ok = this.moveTargetsFree(g.delta);
-    this.o.setStatus(`Δ [${g.delta.join(', ')}]${ok ? '' : ' · занято'}`);
+    this.o.setStatus(`Δ [${g.delta.join(', ')}]${ok ? '' : ' · occupied'}`);
   }
 
   private movedUids(): number[] {
@@ -287,13 +314,13 @@ export class EditorController {
     if (!delta[0] && !delta[1] && !delta[2]) return;
     const { state, history, setStatus } = this.o;
     const uids = this.movedUids();
-    if (!uids.length || !this.moveTargetsFree(delta, uids)) { setStatus('перемещение отменено — занято'); return; }
+    if (!uids.length || !this.moveTargetsFree(delta, uids)) { setStatus('move cancelled — target occupied'); return; }
     const primary = uids.filter(u => state.selection.has(u));
     const twins = uids.filter(u => !state.selection.has(u));
     const cmds: Command[] = [new MoveEntities(primary, delta)];
     if (twins.length) cmds.push(new MoveEntities(twins, [-delta[0], delta[1], delta[2]]));
-    history.run(cmds.length > 1 ? new Composite('перемещение', cmds) : cmds[0]);
-    setStatus(`перемещено на [${delta.join(', ')}]`);
+    history.run(cmds.length > 1 ? new Composite('move', cmds) : cmds[0]);
+    setStatus(`moved by [${delta.join(', ')}]`);
   }
 
   private showDragPreview(delta: Vec3): void {
@@ -350,7 +377,7 @@ export class EditorController {
     const cell = this.targetCell(e.clientX, e.clientY);
     if (!cell) return;
     const specs = this.cubeSpecsAt(cell);
-    if (!specs.every(s => this.cellFree([s.x, s.y, s.z]))) { this.o.setStatus('занято'); return; }
+    if (!specs.every(s => this.cellFree([s.x, s.y, s.z]))) { this.o.setStatus('occupied'); return; }
     const cubes: Cube[] = specs.map(s => ({ ...s, uid: this.o.model.nextUid() }));
     this.o.history.run(new AddCubes(cubes));
     this.o.view.setGhost(null);
@@ -360,7 +387,7 @@ export class EditorController {
     const cell = this.targetCell(e.clientX, e.clientY);
     if (!cell) return;
     const specs = this.wingSpecsAt(cell);
-    if (!specs.every(s => !this.o.model.cubeAt(s.x, s.y, s.z))) { this.o.setStatus('занято'); return; }
+    if (!specs.every(s => !this.o.model.cubeAt(s.x, s.y, s.z))) { this.o.setStatus('occupied'); return; }
     const wings: Wing[] = specs.map(s => ({ ...s, uid: this.o.model.nextUid() }));
     this.o.history.run(new AddWings(wings));
     this.o.view.setGhost(null);
@@ -384,7 +411,7 @@ export class EditorController {
     if (cubes.length) cmds.push(new RemoveCubes(cubes));
     if (wings.length) cmds.push(new RemoveWings(wings));
     if (!cmds.length) return;
-    history.run(cmds.length > 1 ? new Composite('удаление', cmds) : cmds[0]);
+    history.run(cmds.length > 1 ? new Composite('delete', cmds) : cmds[0]);
     state.select([...state.selection].filter(u => !uids.includes(u)));
   }
 
@@ -460,7 +487,7 @@ export class EditorController {
     const entries = targets.map(t => this.platePatch(t.cube, t.res, { p: on }));
     history.run(new PatchCubes(entries));
     this.refreshHover();
-    setStatus(`плита ${on ? 'установлена' : 'снята'}`);
+    setStatus(`plate ${on ? 'mounted' : 'removed'}`);
   }
 
   /** R with the plate tool: spin the hovered plate 90° about its face normal —
@@ -485,11 +512,11 @@ export class EditorController {
     if (!entries.length) return true;              // handled, nothing to rotate
     history.run(new PatchCubes(entries));
     this.refreshHover();
-    setStatus('плита повёрнута');
+    setStatus('plate rotated');
     return true;
   }
 
-  private doPaint(e: PointerEvent): void {
+  private doAssignSystem(e: PointerEvent): void {
     const hit = this.pickAt(e.clientX, e.clientY);
     if (!hit || hit.tri.kind !== 'cube') return;
     const { state, model, history } = this.o;
@@ -510,36 +537,74 @@ export class EditorController {
     const t = e.target as HTMLElement;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     const { state, history } = this.o;
-    const tools = { '1': 'select', '2': 'add', '3': 'erase', '4': 'paint', '5': 'wing', '6': 'plate' } as const;
-    if (e.key in tools) { state.update({ tool: tools[e.key as keyof typeof tools] }); return; }
+    const tool = TOOL_DEFS.find(td => td.key === e.key);
+    if (tool && !e.ctrlKey && !e.altKey) { state.update({ tool: tool.id }); return; }
+    const mode = MODE_DEFS.find(md => md.key === e.key);
+    if (mode && !e.ctrlKey && !e.altKey) {
+      state.update({ render: { ...state.render, mode: mode.id } });
+      return;
+    }
     switch (e.key.toLowerCase()) {
       case 'z':
         if (e.ctrlKey) { e.preventDefault(); history.undo(); }
-        else this.rotateAxis(2, e.shiftKey ? -1 : 1);
         return;
       case 'y':
         if (e.ctrlKey) { e.preventDefault(); history.redo(); }
-        else this.rotateAxis(1, e.shiftKey ? -1 : 1);
         return;
+      /* X/C/V — three adjacent keys for the three world axes, X anchors */
       case 'x':
-        if (!e.ctrlKey) this.rotateAxis(0, e.shiftKey ? -1 : 1);
+        if (e.ctrlKey) return;
+        if (e.altKey) { e.preventDefault(); this.mirrorAxis(0); return; }
+        this.rotateAxis(0, e.shiftKey ? -1 : 1);
+        return;
+      case 'c':
+        if (e.ctrlKey) return;
+        if (e.altKey) { e.preventDefault(); this.mirrorAxis(1); return; }
+        this.rotateAxis(1, e.shiftKey ? -1 : 1);
+        return;
+      case 'v':
+        if (e.ctrlKey) return;
+        if (e.altKey) { e.preventDefault(); this.mirrorAxis(2); return; }
+        this.rotateAxis(2, e.shiftKey ? -1 : 1);
         return;
       case 'r': this.rotate(e.shiftKey ? -1 : 1); return;
-      case 'q': state.update({ activeComp: (state.activeComp + 9) % 10 }); return;
-      case 'e': state.update({ activeComp: (state.activeComp + 1) % 10 }); return;
+      case 'q': this.cycleActive(-1); return;
+      case 'e': this.cycleActive(1); return;
       case 'm': this.toggleSymmetry(); return;
       case 'f': this.o.fitView(); return;
+      case 'p': state.update({ render: { ...state.render, plates: !state.render.plates } }); return;
+      case 'g': state.update({ render: { ...state.render, edges: !state.render.edges } }); return;
       case 'delete': case 'backspace':
         if (state.selection.size) this.removeUids([...state.selection]);
         return;
       case 'escape': state.select([]); this.cancelGesture(); this.o.view.setGhost(null); return;
-      case 'tab': break;
-    }
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      state.update({ layout: state.layout === 'single' ? 'quad' : 'single' });
     }
   };
+
+  /** Q/E — cycle what the active tool works with */
+  private cycleActive(dir: 1 | -1): void {
+    const { state, data } = this.o;
+    if (state.tool === 'systems') {
+      const ids = data.systems.all().map(s => s.id);
+      const at = Math.max(0, ids.indexOf(state.activeComp));
+      state.update({ activeComp: ids[(at + dir + ids.length) % ids.length] });
+      return;
+    }
+    if (state.tool === 'plate') {
+      const n = data.plateMesh.quad_all.length;
+      if (!n) return;
+      const v = state.render.plateVariants;
+      state.update({ render: { ...state.render,
+        plateVariants: { ...v, quad: (v.quad + dir + n) % n } } });
+      return;
+    }
+    /* build: one list — 4 shapes then 5 wings */
+    const items = 4 + 5;
+    const at = state.buildKind === 'shape' ? state.activeShape : 4 + state.activeWingKind;
+    const next = (at + dir + items) % items;
+    if (next < 4) state.update({ buildKind: 'shape', activeShape: next as ShapeId });
+    else state.update({ buildKind: 'wing', activeWingKind: next - 4 });
+  }
 
   private rotate(dir: 1 | -1): void {
     if (this.rotateHoveredPlate(dir)) return;
@@ -548,29 +613,49 @@ export class EditorController {
 
   /** ±90° about a world axis: composed onto the selection in place, or onto
       the active orientation used for placement */
-  private rotateAxis(axis: 0 | 1 | 2, dir: 1 | -1): void {
+  rotateAxis(axis: 0 | 1 | 2, dir: 1 | -1): void {
     this.applyOrientMap(o => rotateOrient(o, axis, dir));
   }
 
-  private applyOrientMap(map: (o: number) => number): void {
+  /** delete the current selection (symmetry-aware) — panel button / Del */
+  deleteSelection(): void {
+    if (this.o.state.selection.size) this.removeUids([...this.o.state.selection]);
+  }
+
+  /** mirror across a world axis in one keystroke — orientation flips through
+      the shape's reflection table (positions stay put) */
+  mirrorAxis(axis: 0 | 1 | 2): void {
+    this.applyOrientMap(
+      (o, shape) => REFLECT_SHAPE[axis][shape][o],
+      (o, kind) => REFLECT_WING[axis][kind][o]);
+  }
+
+  private applyOrientMap(
+    map: (o: number, shape: ShapeId) => number,
+    wingMap: (o: number, kind: number) => number = o => map(o, 0),
+  ): void {
     const { state, model, history } = this.o;
     if (state.tool === 'select' && state.selection.size) {
       const cubes = [...state.selection]
         .map(u => model.byUid(u))
         .filter((en): en is Cube => !!en && 'shape' in en)
-        .map(c => ({ uid: c.uid, patch: { o: map(c.o) } }));
+        .map(c => ({ uid: c.uid, patch: { o: map(c.o, c.shape) } }));
       const wings = [...state.selection]
         .map(u => model.byUid(u))
         .filter((en): en is Wing => !!en && !('shape' in en))
-        .map(w => ({ uid: w.uid, patch: { o: map(w.o) } }));
+        .map(w => ({ uid: w.uid, patch: { o: wingMap(w.o, w.kind) } }));
       const cmds: Command[] = [];
       if (cubes.length) cmds.push(new PatchCubes(cubes));
       if (wings.length) cmds.push(new PatchWings(wings));
       if (cmds.length === 1) history.run(cmds[0]);
-      else if (cmds.length > 1) history.run(new Composite('поворот', cmds));
+      else if (cmds.length > 1) history.run(new Composite('rotate', cmds));
       return;
     }
-    state.update({ activeOrient: map(state.activeOrient) });
+    state.update({
+      activeOrient: state.buildKind === 'wing'
+        ? wingMap(state.activeOrient, state.activeWingKind)
+        : map(state.activeOrient, state.activeShape),
+    });
   }
 
   private toggleSymmetry(): void {
