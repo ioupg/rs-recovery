@@ -2,6 +2,10 @@
    and derives runtime tables from it. */
 
 import type { PlateSlot } from '../core/types';
+import type { SystemDef } from '../core/systems';
+import { SystemsRegistry } from '../core/systems';
+import type { PlateRegistry } from './plates';
+import { buildPlateRegistry } from './plates';
 
 export interface SubMesh { pos: number[]; nrm?: number[]; idx: number[]; tex?: string[]; uv?: number[] }
 
@@ -56,6 +60,13 @@ export interface GameData {
   /** majority archive value per (cube orientation, slot index) — used to emit
       plausible slots for cubes created in the editor */
   slotDefaults: PlateSlot[][];
+  /** archive systems 0..9 + any registered from data/systems.json */
+  systems: SystemsRegistry;
+  /** every mountable plate mesh, seeded from plateMesh */
+  plates: PlateRegistry;
+  /** cage lookup by resource name — how registered systems (id ≥ 10) find
+      their cage mesh */
+  moduleByName?: Record<string, ModuleMeshEntry>;
 }
 
 async function json<T>(name: string): Promise<T> {
@@ -72,13 +83,34 @@ export function computeSlotDefaults(_ships: Record<string, ShipEntry>): PlateSlo
     Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })));
 }
 
+/** optional user extension file — absent in a stock checkout */
+async function loadExtraSystems(): Promise<SystemDef[]> {
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}data/systems.json`);
+    if (!res.ok) return [];
+    return await res.json() as SystemDef[];
+  } catch {
+    return [];
+  }
+}
+
 export async function loadGameData(): Promise<GameData> {
-  const [ships, shapeMesh, plateMesh, moduleMesh, wingMesh] = await Promise.all([
+  const [ships, shapeMesh, plateMesh, moduleMesh, wingMesh, extraSystems] = await Promise.all([
     json<Record<string, ShipEntry>>('ships.json'),
     json<Record<string, ShapeMeshEntry>>('shape-mesh.json'),
     json<GameData['plateMesh']>('plate-mesh.json'),
     json<(ModuleMeshEntry | null)[]>('module-mesh.json'),
     json<(NamedMesh | null)[]>('wing-mesh.json'),
+    loadExtraSystems(),
   ]);
-  return { ships, shapeMesh, plateMesh, moduleMesh, wingMesh, slotDefaults: computeSlotDefaults(ships) };
+  const moduleByName: Record<string, ModuleMeshEntry> = {};
+  for (const m of moduleMesh)
+    if (m?.name) moduleByName[m.name] = m;
+  return {
+    ships, shapeMesh, plateMesh, moduleMesh, wingMesh,
+    slotDefaults: computeSlotDefaults(ships),
+    systems: new SystemsRegistry(extraSystems),
+    plates: buildPlateRegistry(plateMesh),
+    moduleByName,
+  };
 }

@@ -3,6 +3,7 @@
 
 import type { ShipModel } from './model';
 import type { Cube, Issue } from './types';
+import type { SystemsRegistry } from './systems';
 
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
 
@@ -10,17 +11,22 @@ const NEIGHBORS: readonly (readonly [number, number, number])[] = [
   [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
 ];
 
-export function validate(model: ShipModel): Issue[] {
+export function validate(model: ShipModel, systems?: SystemsRegistry): Issue[] {
   const issues: Issue[] = [];
   const doc = model.doc;
+
+  const knownComp = (comp: number): boolean =>
+    systems ? systems.has(comp) : comp >= 0 && comp <= 9;
 
   for (const c of doc.cubes) {
     if (!(c.o >= 0 && c.o <= 23))
       issues.push({ level: 'error', code: 'range', message: `cube ${c.uid}: orientation ${c.o} out of range 0..23`, uids: [c.uid] });
     if (!(c.shape >= 0 && c.shape <= 3))
       issues.push({ level: 'error', code: 'range', message: `cube ${c.uid}: shape ${c.shape} out of range 0..3`, uids: [c.uid] });
-    if (!(c.comp >= 0 && c.comp <= 9))
-      issues.push({ level: 'error', code: 'range', message: `cube ${c.uid}: compartment ${c.comp} out of range 0..9`, uids: [c.uid] });
+    if (!knownComp(c.comp))
+      issues.push({ level: 'error', code: 'range', message: `cube ${c.uid}: unknown system ${c.comp}`, uids: [c.uid] });
+    else if (c.comp > 9)
+      issues.push({ level: 'warning', code: 'json-only', message: `cube ${c.uid}: system ${c.comp} is not representable in the 2014 binary format`, uids: [c.uid] });
   }
   for (const w of doc.wings) {
     if (!(w.o >= 0 && w.o <= 23))
@@ -90,6 +96,24 @@ export function validate(model: ShipModel): Issue[] {
         message: `hull forms ${components} disconnected components`,
         uids: doc.cubes.map(c => c.uid),
       });
+  }
+
+  for (const e of doc.extras ?? []) {
+    const bad = (msg: string): void => {
+      issues.push({ level: 'error', code: 'range', message: `${e.kind} ${e.uid}: ${msg}`, uids: [e.uid] });
+    };
+    if (e.kind === 'lattice') {
+      const d = [0, 1, 2].filter(i => e.from[i] !== e.to[i]);
+      if (d.length > 1) bad('run is not axis-aligned');
+      if (e.chord <= 0 || e.brace < 0) bad('non-positive strut thickness');
+    } else if (e.kind === 'deco') {
+      if (!(e.anchor.face >= 0 && e.anchor.face <= 5)) bad(`face ${e.anchor.face} out of range 0..5`);
+      if (!(e.o >= 0 && e.o <= 23)) bad(`orientation ${e.o} out of range 0..23`);
+    } else if (e.kind === 'guy') {
+      for (const end of [e.a, e.b])
+        if (!(end.corner >= 0 && end.corner <= 7)) bad(`corner ${end.corner} out of range 0..7`);
+      if (e.sag < 0) bad('negative sag');
+    }
   }
 
   return issues;

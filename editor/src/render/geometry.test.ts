@@ -4,8 +4,11 @@
 
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { MATERIAL_SLOTS, type ShapeId, type ShipDoc } from '../core/types';
+import type { ShapeId, ShipDoc } from '../core/types';
+import { ARCHIVE_SLOTS } from '../core/materials';
+import { SystemsRegistry } from '../core/systems';
 import type { GameData, ShipEntry } from '../data/loader';
+import { buildPlateRegistry } from '../data/plates';
 import type { BuildOptions } from './geometryTypes';
 import { buildShipGeometry } from './geometry';
 import { buildPickGeometry } from './pick';
@@ -29,6 +32,8 @@ const data: GameData = {
   moduleMesh: shapes.MODULE_MESH as GameData['moduleMesh'],
   wingMesh: (shapes.WING_MESH ?? []) as GameData['wingMesh'],
   slotDefaults: [],
+  systems: new SystemsRegistry(),
+  plates: buildPlateRegistry(shapes.PLATE_MESH as GameData['plateMesh']),
 };
 
 /** uids = index; wings continue the cube range so identities stay unique */
@@ -66,11 +71,11 @@ describe('buildShipGeometry', () => {
     }
     expect(col.some((v, i) => v < 1 && i % 3 === 0)).toBe(true);   // AO actually varies
 
-    expect(built.groupSlots.length).toBeLessThanOrEqual(MATERIAL_SLOTS.length);
+    expect(built.groupSlots.length).toBeLessThanOrEqual(ARCHIVE_SLOTS.length);
     expect(built.geometry.groups.length).toBe(built.groupSlots.length);
     built.geometry.groups.forEach((g, i) => {
       expect(g.materialIndex).toBe(i);
-      expect(MATERIAL_SLOTS).toContain(built.groupSlots[i]);
+      expect(ARCHIVE_SLOTS).toContain(built.groupSlots[i]);
     });
     /* groups tile the buffer contiguously */
     let at = 0;

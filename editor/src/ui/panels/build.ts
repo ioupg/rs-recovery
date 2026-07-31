@@ -4,8 +4,8 @@
 import type { UiContext } from '../context';
 import type { ShapeId } from '../../core/types';
 import type { Tool } from '../../editor/state';
-import { COMP_IDS, COMP_NAMES, SHAPE_NAMES, WING_KINDS, WING_NAMES } from '../../core/tables';
-import { compSlot, DEFAULT_MATERIALS } from '../../core/materials';
+import { SHAPE_NAMES, WING_KINDS, WING_NAMES } from '../../core/tables';
+import { compSlot } from '../../core/materials';
 import { button, h } from '../dom';
 
 export function buildBuildTab(host: HTMLElement, ctx: UiContext): { preview: HTMLCanvasElement } {
@@ -51,11 +51,13 @@ export function buildBuildTab(host: HTMLElement, ctx: UiContext): { preview: HTM
   compSection.append(h('h3', undefined, 'отсек'));
   const compGrid = h('div', 'comp-grid');
   const compBtns = new Map<number, HTMLButtonElement>();
-  for (const id of COMP_IDS) {
+  for (const def of ctx.data.systems.all()) {
+    const id = def.id;
     const b = h('button', 'comp-btn');
     const sw = h('span', 'sw');
-    sw.style.background = DEFAULT_MATERIALS[compSlot(id)].color;
-    b.append(sw, h('span', 'cn', COMP_NAMES[id]));
+    sw.style.background = ctx.materials.get(compSlot(id)).color;
+    b.append(sw, h('span', 'cn', def.name));
+    b.title = def.nameRu ?? def.key;
     b.onclick = () => ctx.state.update({ activeComp: id });
     compBtns.set(id, b);
     compGrid.append(b);

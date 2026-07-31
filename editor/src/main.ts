@@ -5,7 +5,7 @@
 import { loadGameData } from './data/loader';
 import { ShipModel } from './core/model';
 import { History } from './core/history';
-import { MaterialStore } from './core/materials';
+import { buildDefaultMaterials, MaterialStore } from './core/materials';
 import { exportShipJson, importShip, importShipJson } from './core/io';
 import { validate } from './core/validation';
 import type { ShipDoc } from './core/types';
@@ -44,7 +44,7 @@ async function init(): Promise<void> {
   const state = new EditorState();
   const model = new ShipModel(emptyDoc());
   const history = new History(model);
-  const materials = new MaterialStore();
+  const materials = new MaterialStore(buildDefaultMaterials(data.systems.all()));
 
   /* forward references filled after the scene exists */
   let view: ShipView;
@@ -83,7 +83,7 @@ async function init(): Promise<void> {
       const b = view?.boundsOfDoc();
       if (b && viewports) { viewports.fit(b); fitShadow(b); }
     },
-    validateNow: () => validate(model),
+    validateNow: () => validate(model, data.systems),
   };
 
   const ctx: UiContext = { state, history, materials, model, data, actions };

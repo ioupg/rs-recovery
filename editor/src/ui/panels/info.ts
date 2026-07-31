@@ -3,7 +3,7 @@
 
 import type { UiContext } from '../context';
 import type { Issue } from '../../core/types';
-import { COMP_IDS, COMP_NAMES, WING_NAMES } from '../../core/tables';
+import { WING_NAMES } from '../../core/tables';
 import { compSlot } from '../../core/materials';
 import { debounce, h } from '../dom';
 
@@ -62,7 +62,8 @@ export function buildInfoTab(host: HTMLElement, ctx: UiContext): void {
     for (const c of cubes) hist.set(c.comp, (hist.get(c.comp) ?? 0) + 1);
     const maxCount = Math.max(1, ...hist.values());
     const ledger = h('div', 'comp-ledger');
-    for (const id of COMP_IDS) {
+    for (const def of ctx.data.systems.all()) {
+      const id = def.id;
       const n = hist.get(id);
       if (!n) continue;
       const color = ctx.materials.get(compSlot(id)).color;
@@ -72,7 +73,8 @@ export function buildInfoTab(host: HTMLElement, ctx: UiContext): void {
       const i = document.createElement('i');
       i.style.background = color; i.style.width = `${100 * n / maxCount}%`;
       bar.append(i);
-      crow.append(sw, h('span', 'cn', COMP_NAMES[id]), bar, h('span', 'ct', String(n)));
+      /* the stamp is a document — it keeps the exe's own names */
+      crow.append(sw, h('span', 'cn', def.nameRu ?? def.name), bar, h('span', 'ct', String(n)));
       ledger.append(crow);
     }
 

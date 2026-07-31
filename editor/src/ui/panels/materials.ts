@@ -2,9 +2,7 @@
    MaterialStore; reflects external changes (e.g. resetSlot) via subscribe. */
 
 import type { UiContext } from '../context';
-import type { MaterialDef } from '../../core/types';
-import { MATERIAL_SLOTS } from '../../core/types';
-import { MATERIAL_SLOT_NAMES } from '../../core/materials';
+import type { MaterialDef, MaterialSlot } from '../../core/types';
 import { button, h } from '../dom';
 
 type SliderKey = 'roughness' | 'metalness' | 'clearcoat' | 'clearcoatRoughness';
@@ -26,12 +24,17 @@ function slider(label: string, min: number, max: number): { row: HTMLLabelElemen
 }
 
 export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
-  for (const slot of MATERIAL_SLOTS) {
+  const slotName = (slot: MaterialSlot): string => {
+    if (slot === 'wing') return 'wing';
+    const def = ctx.data.systems.byId(Number(slot.slice(4)));
+    return def ? def.name : slot;
+  };
+  for (const slot of ctx.materials.slots()) {
     const row = h('div', 'mat-row');
     const head = h('button', 'mat-head');
     head.type = 'button';
     const sw = h('span', 'sw');
-    head.append(sw, h('span', 'mat-name', MATERIAL_SLOT_NAMES[slot]), h('span', 'mat-caret', '▸'));
+    head.append(sw, h('span', 'mat-name', slotName(slot)), h('span', 'mat-caret', '▸'));
 
     const body = h('div', 'mat-body');
 

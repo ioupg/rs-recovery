@@ -11,7 +11,7 @@
 
 import * as THREE from 'three';
 import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
-import { MATERIAL_SLOTS } from '../core/types';
+import { WING_SLOT } from '../core/types';
 import {
   AXIS_FACE_KIND, FACES, HULL_COMP, ORIENTATIONS, SHAPE_CENTROID, SLOT_AXES, WING_RING,
   corner, plateFaceDir, rot,
@@ -36,9 +36,15 @@ const FILL_INSET = 0.045;
 const MODULE_SCALE = 0.88;
 const FILL_BRIGHT = 0.55, MODULE_BRIGHT = 0.78, PLATE_BRIGHT = 1.06;
 
-/** compartment → material slot; out-of-range compartments fall back to hull */
+/** compartment → material slot; malformed compartments fall back to hull.
+    No upper clamp — the slot key is open-ended and the material store falls
+    back to hull for slots no registered system backs. */
 const slotOf = (comp: number): MaterialSlot =>
-  compSlot(Number.isInteger(comp) && comp >= 0 && comp <= 9 ? comp : HULL_COMP);
+  compSlot(Number.isInteger(comp) && comp >= 0 ? comp : HULL_COMP);
+
+/** group order: systems by id, wing last */
+const slotOrder = (slot: MaterialSlot): number =>
+  slot === WING_SLOT ? Number.MAX_SAFE_INTEGER : Number(slot.slice(4));
 
 interface Bin { slot: MaterialSlot; tex: string | null; pos: number[]; nrm: number[]; col: number[]; uv: number[] }
 
@@ -84,10 +90,9 @@ class SlotBuckets {
   }
 
   build(): { geometry: THREE.BufferGeometry; groupSlots: MaterialSlot[]; groupTex: (string | null)[] } {
-    const order = new Map(MATERIAL_SLOTS.map((s, i) => [s, i]));
     const used = [...this.bins.values()]
       .filter(b => b.pos.length > 0)
-      .sort((a, b2) => (order.get(a.slot)! - order.get(b2.slot)!)
+      .sort((a, b2) => (slotOrder(a.slot) - slotOrder(b2.slot))
         || (a.tex ?? '').localeCompare(b2.tex ?? ''));
     const n = used.reduce((s, e) => s + e.pos.length, 0);
     const pos = new Float32Array(n), nrm = new Float32Array(n), col = new Float32Array(n);
@@ -261,8 +266,13 @@ function addModules(
        m1*slot frame cage too */
     if (cb.comp === HULL_COMP && !includeHull) continue;
     /* index = compartment id: cages are name-bound to systems since the
-       resource-id crack (m1*power=comp0 … m1*cargo=comp9) */
-    const mm = data.moduleMesh[cb.comp];
+       resource-id crack (m1*power=comp0 … m1*cargo=comp9); registered systems
+       (id ≥ 10) resolve their cage by name through the registry */
+    const mm = data.moduleMesh[cb.comp]
+      ?? (() => {
+        const cage = data.systems.byId(cb.comp)?.cage;
+        return cage ? data.moduleByName?.[cage] ?? null : null;
+      })();
     const M = ORIENTATIONS[cb.o];
     if (!mm || !M) continue;
     const own = `${cb.x},${cb.y},${cb.z}`;

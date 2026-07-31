@@ -51,12 +51,10 @@ export interface ShipMeta {
 
 /* ── PBR materials ─────────────────────────────────────────── */
 
-export const MATERIAL_SLOTS = [
-  'comp0', 'comp1', 'comp2', 'comp3', 'comp4',
-  'comp5', 'comp6', 'comp7', 'comp8', 'comp9',
-  'wing',
-] as const;
-export type MaterialSlot = (typeof MATERIAL_SLOTS)[number];
+/** `comp<N>` per registered system, plus 'wing'. Dynamic since the systems
+    registry became extensible — the known set lives in materials.ts. */
+export type MaterialSlot = string;
+export const WING_SLOT: MaterialSlot = 'wing';
 
 export interface MaterialDef {
   /** '#rrggbb' */
@@ -71,6 +69,44 @@ export interface MaterialDef {
 
 export type MaterialSet = Record<MaterialSlot, MaterialDef>;
 
+/* ── extra element kinds (JSON-only; ignored by the 2014 binary format) ──
+   Engine-prototype schema per notes/07-authoring.md §4.3. All three are
+   procedural, like wings. */
+
+/** truss spanning a straight run of cells */
+export interface LatticeEl {
+  uid: number;
+  kind: 'lattice';
+  from: Vec3;
+  to: Vec3;
+  profile: 'square' | 'tri';
+  /** corner chord thickness (cell units) */
+  chord: number;
+  /** diagonal brace thickness (cell units) */
+  brace: number;
+}
+
+/** registry mesh glued to a hull face */
+export interface DecoEl {
+  uid: number;
+  kind: 'deco';
+  meshId: string;
+  anchor: { cell: Vec3; face: number; offset: readonly [number, number] };
+  o: number;
+}
+
+/** cable between two cell corners (corner index 0..7) */
+export interface GuyEl {
+  uid: number;
+  kind: 'guy';
+  a: { cell: Vec3; corner: number };
+  b: { cell: Vec3; corner: number };
+  /** 0 = straight; otherwise quadratic sag depth in cell units */
+  sag: number;
+}
+
+export type ExtraElement = LatticeEl | DecoEl | GuyEl;
+
 /* ── the document ──────────────────────────────────────────── */
 
 export interface ShipDoc {
@@ -79,6 +115,8 @@ export interface ShipDoc {
   wings: Wing[];
   /** per-slot overrides of the default material set, embedded on export */
   materials?: Partial<MaterialSet>;
+  /** lattice/deco/guy prototypes — JSON extension, absent on archive ships */
+  extras?: ExtraElement[];
 }
 
 /* ── validation ────────────────────────────────────────────── */

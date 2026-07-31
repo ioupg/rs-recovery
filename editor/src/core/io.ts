@@ -2,7 +2,7 @@
    Type-only imports from data/loader keep this module free of the fetch-based
    loadGameData() side effects, so it stays safe to import under vitest/node. */
 
-import type { Cube, MaterialSet, PlateSlot, ShipDoc, ShipMeta, Wing } from './types';
+import type { Cube, ExtraElement, MaterialSet, PlateSlot, ShipDoc, ShipMeta, Wing } from './types';
 import type { RawCube, RawWing, ShipEntry } from '../data/loader';
 
 /** cube shape as it appears in parsed archive/recovery JSON — the known
@@ -20,11 +20,17 @@ interface JsonWing {
   o: number; x: number; y: number; z: number; kind: number;
 }
 
+/** distributive Omit — plain Omit over a union keeps only common members */
+export type ExtraSpec = ExtraElement extends infer T
+  ? T extends ExtraElement ? Omit<T, 'uid'> : never : never;
+
 interface ImportJsonShape {
   cubes: JsonCube[];
   elements?: JsonWing[];
   meta?: Partial<ShipMeta>;
   materials?: Partial<MaterialSet>;
+  /** lattice/deco/guy prototypes, notes/07-authoring.md §4.3 (uids reassigned) */
+  extras?: (ExtraSpec & { uid?: number })[];
 }
 
 function isImportJsonShape(json: unknown): json is ImportJsonShape {
@@ -79,7 +85,11 @@ export function importShipJson(json: unknown, fallbackName: string): ShipDoc {
     nation: json.meta?.nation,
     rank: json.meta?.rank,
   };
-  return json.materials ? { meta, cubes, wings, materials: json.materials } : { meta, cubes, wings };
+  const doc: ShipDoc = { meta, cubes, wings };
+  if (json.materials) doc.materials = json.materials;
+  if (json.extras?.length)
+    doc.extras = json.extras.map(e => ({ ...e, uid: uid++ }) as ExtraElement);
+  return doc;
 }
 
 /** Emits {cubes, elements, meta, materials?} with cubes in RawCube shape.
@@ -106,9 +116,12 @@ export function exportShipJson(doc: ShipDoc, slotDefaults: PlateSlot[][]): unkno
 
   const elements = doc.wings.map(w => ({ o: w.o, x: w.x, y: w.y, z: w.z, kind: w.kind, ...(w.extra ?? {}) }));
 
-  const out: { cubes: RawCube[]; elements: unknown[]; meta: ShipMeta; materials?: Partial<MaterialSet> } = {
-    cubes, elements, meta: { ...doc.meta },
-  };
+  const out: {
+    cubes: RawCube[]; elements: unknown[]; meta: ShipMeta;
+    materials?: Partial<MaterialSet>; extras?: unknown[];
+  } = { cubes, elements, meta: { ...doc.meta } };
   if (doc.materials) out.materials = doc.materials;
+  if (doc.extras?.length)
+    out.extras = doc.extras.map(({ uid: _uid, ...rest }) => rest);
   return out;
 }
