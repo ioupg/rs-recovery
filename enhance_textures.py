@@ -202,12 +202,14 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
 
 
 WING_SOLAR_PROMPT = (
-    "A perfectly seamless tileable texture, top-down orthographic: dark "
-    "blue-black photovoltaic solar panel cells in a regular grid, thin silver "
-    "busbar lines, subtle glass reflections and slight cell-to-cell hue "
-    "variation, spacecraft solar array style, worn industrial look. Flat "
-    "lighting, no vignette, no border, no text, edges must tile seamlessly. "
-    "1024x1024."
+    "A perfectly seamless tileable texture, top-down orthographic: a very "
+    "fine-grained dense grid of small dark blue-black photovoltaic solar "
+    "cells — at least 24 by 24 tiny cells across the image — separated by "
+    "hairline silver busbar lines, grouped into larger panel sections by "
+    "slightly thicker seams every 8 cells. Subtle glass micro-reflections, "
+    "slight cell-to-cell hue variation, spacecraft solar array style, worn "
+    "industrial look. Flat lighting, no vignette, no border, no text, edges "
+    "must tile seamlessly. 1024x1024."
 )
 
 
