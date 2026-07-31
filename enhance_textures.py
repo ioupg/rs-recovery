@@ -68,7 +68,7 @@ PER_TEXTURE_RELIEF = {
     "bordersDusty.bmp": 0.15,     # painted hazard stripes
     "system_colors.png": 0.0,     # flat palette — no relief at all
     "MozaicGlowy.bmp": 0.5,       # glossy mosaic — mild
-    "wing_solar": 0.4,            # glass cells — gentle
+    "wing_solar": 0.6,            # micro-groove weave — present but soft
 }
 ROUGHNESS_BLUR_SIGMA = 2.0
 ROUGHNESS_MIN = 0.55
@@ -239,13 +239,15 @@ def make_tileable(img: Image.Image) -> Image.Image:
 
 
 WING_SOLAR_PROMPT = (
-    "A perfectly seamless tileable texture, top-down orthographic: a smooth "
-    "dark blue-grey photovoltaic glass surface, nearly featureless — an "
-    "extremely subtle fine micro-grid of hairline cell lines, barely visible, "
-    "low contrast, with a soft satin sheen and faint cell-to-cell tonal "
-    "variation. No bold lines, no thick seams, no distinct details, no "
-    "reflridge highlights. Flat even lighting, no vignette, no border, no "
-    "text, edges must tile seamlessly. 1024x1024."
+    "A perfectly seamless tileable texture, top-down orthographic: dark "
+    "blue-grey photovoltaic glass surface with a fine micro-groove weave "
+    "substructure — like carbon fiber but more interesting: a diagonal twill "
+    "herringbone weave of very fine grooves, subtly catching light with a "
+    "soft anisotropic satin sheen and a faint iridescent blue-violet shift. "
+    "Overlaid with a barely visible hairline solar cell grid. Micro detail "
+    "only: at a distance it reads as a smooth dark surface. No bold lines, "
+    "no thick seams, no distinct objects. Flat even lighting, no vignette, "
+    "no border, no text, edges must tile seamlessly. 1024x1024."
 )
 
 
