@@ -20,7 +20,7 @@ import { occupancyOf, vertexAO, type Occupancy } from './ao';
 import { BLANK_UV, atlasUV } from './atlas';
 import { chamferFaces } from './chamfer';
 import {
-  centroid, collectFacets, cross, cullFacets, dot, facetNormal, norm, orient, sub,
+  centroid, collectFacets, cross, cullFacets, dot, facetNormal, len, norm, orient, sub,
   type Facet, type V3,
 } from './facets';
 
@@ -59,14 +59,23 @@ class SlotBuckets {
     if (this.uvOn) b.uv.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
   }
 
-  /** fan-triangulate a planar loop with one flat normal (viewer 1010-1019) */
+  /** Fan-triangulate a loop, flat-shaded (viewer 1010-1019). The normal is
+      taken per triangle from its own winding and flipped to agree with the
+      facet's outward normal: chamfer corner patches are not planar, so one
+      normal for the whole fan would shade them wrong (the reference gets this
+      from computeVertexNormals over its non-indexed soup, then relies on
+      double-sided shading for the sign — we settle the sign here instead). */
   fan(
-    slot: MaterialSlot, vs: readonly V3[], n: readonly number[],
+    slot: MaterialSlot, vs: readonly V3[], n: V3,
     shade: (i: number) => number, uv?: (i: number) => readonly [number, number],
   ): void {
-    for (let i = 1; i < vs.length - 1; i++)
+    for (let i = 1; i < vs.length - 1; i++) {
+      const w = cross(sub(vs[i], vs[0]), sub(vs[i + 1], vs[0]));
+      let tn = n;
+      if (len(w) > 1e-12) { tn = norm(w); if (dot(tn, n) < 0) tn = [-tn[0], -tn[1], -tn[2]]; }
       for (const j of [0, i, i + 1])
-        this.vertex(slot, vs[j], n, shade(j), uv ? uv(j) : undefined);
+        this.vertex(slot, vs[j], tn, shade(j), uv ? uv(j) : undefined);
+    }
   }
 
   build(): { geometry: THREE.BufferGeometry; groupSlots: MaterialSlot[] } {
