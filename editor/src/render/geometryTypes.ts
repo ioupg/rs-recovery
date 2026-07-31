@@ -19,6 +19,9 @@ export interface BuiltShip {
   /** non-indexed, with groups; material index i → groupSlots[i] */
   geometry: THREE.BufferGeometry;
   groupSlots: MaterialSlot[];
+  /** archive texture per group (mesh mode with real textures), else null;
+      parallel to groupSlots */
+  groupTex: (string | null)[];
   /** source for the accent-line overlay (EdgesGeometry input), or null */
   edges: THREE.BufferGeometry | null;
   /** EdgesGeometry angle threshold (viewer used 25 plate mode, 32 mesh mode) */

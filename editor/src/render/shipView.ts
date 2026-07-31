@@ -102,10 +102,15 @@ export class ShipView {
     };
     const built = buildShipGeometry(doc, this.data, opts);
     const textured = opts.mode === 'plate' && opts.textures;
-    const materials = built.groupSlots.map(slot => {
+    const materials = built.groupSlots.map((slot, i) => {
       const resolved: MaterialSlot =
         slot !== 'wing' && !this.options.compColors ? compSlot(HULL_COMP) : slot;
-      return this.cache.get(resolved, { textured });
+      const map = built.groupTex[i] ?? null;
+      /* system_colors carries the 2014 engine's own system palette — tinting
+         it would recolour the modules it exists to colour */
+      return this.cache.get(resolved, {
+        textured, map, untinted: map === 'system_colors.png' && this.options.compColors,
+      });
     });
 
     const mesh = new THREE.Mesh(built.geometry, materials);

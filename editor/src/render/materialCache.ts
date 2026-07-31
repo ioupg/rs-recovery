@@ -1,22 +1,30 @@
 /* Wraps MaterialStore: builds and keeps live THREE.MeshPhysicalMaterial
-   instances per (slot, textured) pair. Mesh material arrays hold references
-   to these, so store changes must patch the existing instances in place —
-   never recreate — or every mesh using them would need rebuilding too. */
+   instances per (slot, variant). Variants: plain, procedural atlas (plate
+   mode), or a real archive texture (mesh mode) — optionally untinted for
+   textures that carry their own colour (system_colors.png). Mesh material
+   arrays hold references to these, so store changes must patch the existing
+   instances in place — never recreate — or every mesh using them would need
+   rebuilding too. */
 
 import * as THREE from 'three';
 import type { MaterialDef, MaterialSlot } from '../core/types';
 import type { MaterialStore } from '../core/materials';
 import type { Unsubscribe } from '../core/types';
 import { getAtlasTexture } from './atlas';
+import { getPartTexture } from './textureCache';
 
-interface Entry {
-  plain: THREE.MeshPhysicalMaterial;
-  textured: THREE.MeshPhysicalMaterial;
+export interface MaterialVariant {
+  /** procedural compartment atlas as .map (plate mode) */
+  textured: boolean;
+  /** real archive texture name (mesh mode with textures on) */
+  map?: string | null;
+  /** render the map at full colour, ignoring the slot tint */
+  untinted?: boolean;
 }
 
 export class MaterialCache {
   private readonly store: MaterialStore;
-  private readonly cache = new Map<MaterialSlot, Entry>();
+  private readonly cache = new Map<string, { slot: MaterialSlot; v: MaterialVariant; m: THREE.MeshPhysicalMaterial }>();
   private readonly unsubscribe: Unsubscribe;
 
   constructor(store: MaterialStore) {
@@ -26,43 +34,33 @@ export class MaterialCache {
     });
   }
 
-  get(slot: MaterialSlot, o: { textured: boolean }): THREE.MeshPhysicalMaterial {
-    return this.entryFor(slot)[o.textured ? 'textured' : 'plain'];
+  get(slot: MaterialSlot, v: MaterialVariant): THREE.MeshPhysicalMaterial {
+    const key = `${slot}|${v.textured ? 'a' : ''}|${v.map ?? ''}|${v.untinted ? 'w' : ''}`;
+    let e = this.cache.get(key);
+    if (!e) {
+      const m = new THREE.MeshPhysicalMaterial({
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        flatShading: false,
+      });
+      if (v.map) m.map = getPartTexture(v.map);
+      else if (v.textured) m.map = getAtlasTexture();
+      this.apply(m, this.store.get(slot), v);
+      e = { slot, v, m };
+      this.cache.set(key, e);
+    }
+    return e.m;
   }
 
   dispose(): void {
     this.unsubscribe();
-    for (const entry of this.cache.values()) {
-      entry.plain.dispose();
-      entry.textured.dispose();
-    }
+    for (const e of this.cache.values()) e.m.dispose();
     this.cache.clear();
   }
 
-  private entryFor(slot: MaterialSlot): Entry {
-    let entry = this.cache.get(slot);
-    if (!entry) {
-      const plain = this.build();
-      const textured = this.build();
-      textured.map = getAtlasTexture();
-      this.apply(plain, this.store.get(slot));
-      this.apply(textured, this.store.get(slot));
-      entry = { plain, textured };
-      this.cache.set(slot, entry);
-    }
-    return entry;
-  }
-
-  private build(): THREE.MeshPhysicalMaterial {
-    return new THREE.MeshPhysicalMaterial({
-      vertexColors: true,
-      side: THREE.DoubleSide,
-      flatShading: false,
-    });
-  }
-
-  private apply(m: THREE.MeshPhysicalMaterial, def: MaterialDef): void {
-    m.color.set(def.color);
+  private apply(m: THREE.MeshPhysicalMaterial, def: MaterialDef, v: MaterialVariant): void {
+    if (v.untinted) m.color.set('#ffffff');
+    else m.color.set(def.color);
     m.roughness = def.roughness;
     m.metalness = def.metalness;
     m.emissive.set(def.emissive);
@@ -72,14 +70,11 @@ export class MaterialCache {
   }
 
   private refreshAll(): void {
-    for (const [slot, entry] of this.cache) {
-      const def = this.store.get(slot);
-      this.apply(entry.plain, def);
-      this.apply(entry.textured, def);
+    for (const e of this.cache.values()) {
+      this.apply(e.m, this.store.get(e.slot), e.v);
       // atlas may have finished building after this entry was first created
-      if (!entry.textured.map) entry.textured.map = getAtlasTexture();
-      entry.plain.needsUpdate = true;
-      entry.textured.needsUpdate = true;
+      if (!e.v.map && e.v.textured && !e.m.map) e.m.map = getAtlasTexture();
+      e.m.needsUpdate = true;
     }
   }
 }

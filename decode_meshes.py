@@ -319,12 +319,14 @@ def pick_plate_meshes(parts, want_tris=(210, 14)):
         cands.sort(key=lambda c: c[0]['tris'])
         out[key + '_all'] = [{'rid': c[0]['rid'], 'tris': c[0]['tris'],
                               'outline': [[round(x,4), round(y,4)] for x,y in c[1]],
-                              'sub': [{'pos': t['pos'], 'nrm': t['nrm'], 'idx': t['idx']}
+                              'sub': [{'pos': t['pos'], 'nrm': t['nrm'], 'idx': t['idx'],
+                                       'uv': t['uv'], 'tex': t['tex']}
                                       for t in c[0]['sub']]} for c in cands]
         p, h = min(cands, key=lambda c: abs(c[0]['tris'] - target))
         out[key] = {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
                     'outline': [[round(x, 4), round(y, 4)] for x, y in h],
-                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
+                             'uv': s['uv'], 'tex': s['tex']}
                             for s in p['sub']]}
         print(f"  plate {key}: {len(cands)} candidate(s), using {p['rid']} "
               f"({p['tris']} tris, outline {h})")
@@ -382,7 +384,8 @@ def main():
     shapes = pick_shape_meshes(parts)
     slim = {str(k): {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
                      'code': SHAPE_CODE[k], 'window': p.get('window', 1.0),
-                     'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                     'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
+                              'uv': s['uv'], 'tex': s['tex']}
                              for s in p['sub']]}
             for k, p in shapes.items()}
     print("picking interior module cages:")
@@ -396,7 +399,8 @@ def main():
         json.dump(plates, f, separators=(',', ':'))
         f.write(';\nconst MODULE_MESH = ')
         json.dump([{'rid': p['rid'], 'tris': p['tris'],
-                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx']}
+                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
+                             'uv': s['uv'], 'tex': s['tex']}
                             for s in p['sub']]} for p in modules],
                   f, separators=(',', ':'))
         f.write(';\n')

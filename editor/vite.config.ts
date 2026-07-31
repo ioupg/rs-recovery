@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,12 @@ function rsDataPlugin(): Plugin {
     write('shape-mesh.json', shapes.SHAPE_MESH);
     write('plate-mesh.json', shapes.PLATE_MESH);
     write('module-mesh.json', shapes.MODULE_MESH);
+    /* decoded 2014 textures (decode_textures.py → recovered/textures) */
+    const texSrc = resolve(root, '../recovered/textures');
+    const texDst = resolve(root, 'public/textures');
+    mkdirSync(texDst, { recursive: true });
+    for (const f of readdirSync(texSrc))
+      if (f.endsWith('.png')) copyFileSync(resolve(texSrc, f), resolve(texDst, f));
   };
   return {
     name: 'rs-data',

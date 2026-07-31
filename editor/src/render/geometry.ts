@@ -39,20 +39,23 @@ const FILL_BRIGHT = 0.55, MODULE_BRIGHT = 0.78, PLATE_BRIGHT = 1.06;
 const slotOf = (comp: number): MaterialSlot =>
   compSlot(Number.isInteger(comp) && comp >= 0 && comp <= 9 ? comp : HULL_COMP);
 
-interface Bin { pos: number[]; nrm: number[]; col: number[]; uv: number[] }
+interface Bin { slot: MaterialSlot; tex: string | null; pos: number[]; nrm: number[]; col: number[]; uv: number[] }
 
-/** Triangle sink that keeps each material slot contiguous, so one non-indexed
-    BufferGeometry can carry one group per slot. */
+/** Triangle sink that keeps each (material slot, archive texture) contiguous,
+    so one non-indexed BufferGeometry can carry one group per material. tex is
+    always null outside textured mesh mode, collapsing to one group per slot —
+    identical output to the parity-verified untextured build. */
 class SlotBuckets {
-  private readonly bins = new Map<MaterialSlot, Bin>();
+  private readonly bins = new Map<string, Bin>();
   constructor(private readonly uvOn: boolean) {}
 
   vertex(
     slot: MaterialSlot, p: readonly number[], n: readonly number[], shade: number,
-    uv?: readonly [number, number],
+    uv?: readonly [number, number], tex: string | null = null,
   ): void {
-    let b = this.bins.get(slot);
-    if (!b) { b = { pos: [], nrm: [], col: [], uv: [] }; this.bins.set(slot, b); }
+    const key = `${slot} ${tex ?? ''}`;
+    let b = this.bins.get(key);
+    if (!b) { b = { slot, tex, pos: [], nrm: [], col: [], uv: [] }; this.bins.set(key, b); }
     b.pos.push(p[0], p[1], p[2]);
     b.nrm.push(n[0], n[1], n[2]);
     b.col.push(shade, shade, shade);
@@ -78,28 +81,32 @@ class SlotBuckets {
     }
   }
 
-  build(): { geometry: THREE.BufferGeometry; groupSlots: MaterialSlot[] } {
-    const used = MATERIAL_SLOTS
-      .map(slot => ({ slot, bin: this.bins.get(slot) }))
-      .filter((e): e is { slot: MaterialSlot; bin: Bin } => !!e.bin && e.bin.pos.length > 0);
-    const n = used.reduce((s, e) => s + e.bin.pos.length, 0);
+  build(): { geometry: THREE.BufferGeometry; groupSlots: MaterialSlot[]; groupTex: (string | null)[] } {
+    const order = new Map(MATERIAL_SLOTS.map((s, i) => [s, i]));
+    const used = [...this.bins.values()]
+      .filter(b => b.pos.length > 0)
+      .sort((a, b2) => (order.get(a.slot)! - order.get(b2.slot)!)
+        || (a.tex ?? '').localeCompare(b2.tex ?? ''));
+    const n = used.reduce((s, e) => s + e.pos.length, 0);
     const pos = new Float32Array(n), nrm = new Float32Array(n), col = new Float32Array(n);
     const uv = new Float32Array(this.uvOn ? (n / 3) * 2 : 0);
     const geometry = new THREE.BufferGeometry();
     const groupSlots: MaterialSlot[] = [];
+    const groupTex: (string | null)[] = [];
     let off = 0, uvOff = 0;
-    for (const { slot, bin } of used) {
+    for (const bin of used) {
       pos.set(bin.pos, off); nrm.set(bin.nrm, off); col.set(bin.col, off);
       if (this.uvOn) { uv.set(bin.uv, uvOff); uvOff += bin.uv.length; }
       geometry.addGroup(off / 3, bin.pos.length / 3, groupSlots.length);
-      groupSlots.push(slot);
+      groupSlots.push(bin.slot);
+      groupTex.push(bin.tex);
       off += bin.pos.length;
     }
     geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
     if (this.uvOn) geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    return { geometry, groupSlots };
+    return { geometry, groupSlots, groupTex };
   }
 }
 
@@ -154,6 +161,7 @@ function addWings(
       facets use (viewer 800-831). ── */
 function addShells(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
+  texOn: boolean,
 ): void {
   for (const cb of doc.cubes) {
     const sm = data.shapeMesh[String(cb.shape)];
@@ -163,6 +171,7 @@ function addShells(
     const slot = slotOf(cb.comp);
     for (const s of sm.sub) {
       if (!s.nrm) continue;
+      const stex = texOn ? (s.tex?.[0] ?? null) : null;
       for (const i of s.idx) {
         const p = [s.pos[i * 3] - 0.5, s.pos[i * 3 + 1] - 0.5, s.pos[i * 3 + 2] - 0.5];
         const w: V3 = [
@@ -176,7 +185,8 @@ function addShells(
           M[3] * n0[0] + M[4] * n0[1] + M[5] * n0[2],
           M[6] * n0[0] + M[7] * n0[1] + M[8] * n0[2],
         ];
-        b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1);
+        b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1,
+          texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
       }
     }
   }
@@ -187,6 +197,7 @@ function addShells(
    compartment id over the family in a stable order (viewer 832-859). */
 function addModules(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
+  texOn: boolean,
 ): void {
   const N = data.moduleMesh.length;
   if (!N) return;
@@ -199,6 +210,7 @@ function addModules(
     const slot = slotOf(cb.comp);
     for (const s of mm.sub) {
       if (!s.nrm) continue;
+      const stex = texOn ? (s.tex?.[0] ?? null) : null;
       for (const i of s.idx) {
         const p0 = [
           (s.pos[i * 3] - 0.5) * MODULE_SCALE,
@@ -216,7 +228,8 @@ function addModules(
           M[3] * n0[0] + M[4] * n0[1] + M[5] * n0[2],
           M[6] * n0[0] + M[7] * n0[1] + M[8] * n0[2],
         ];
-        b.vertex(slot, w, n, (aoOn ? vertexAO(w, n, occ, own) : 1) * MODULE_BRIGHT);
+        b.vertex(slot, w, n, (aoOn ? vertexAO(w, n, occ, own) : 1) * MODULE_BRIGHT,
+          texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
       }
     }
   }
@@ -253,7 +266,7 @@ function addFiller(
       which also means they inherit the facet culling for free. ── */
 function addPlates(
   b: SlotBuckets, kept: readonly Facet[], data: GameData, occ: Occupancy,
-  aoOn: boolean, plateVariant: number,
+  aoOn: boolean, plateVariant: number, texOn: boolean,
 ): void {
   const all = data.plateMesh.quad_all;
   for (const f of kept) {
@@ -285,6 +298,7 @@ function addPlates(
     const slot = slotOf(f.comp);
     for (const s of pm.sub) {
       if (!s.nrm) continue;
+      const stex = texOn ? (s.tex?.[0] ?? null) : null;
       for (let t = 0; t < s.idx.length; t += 3)
         for (const i of [s.idx[t], s.idx[t + 2], s.idx[t + 1]]) {
           const lx = oc[0] + (s.pos[i * 3] - oc[0]) * k - a0[0],
@@ -305,7 +319,8 @@ function addPlates(
             m1 * E1[1] + m2 * E2[1] + nz * n[1],
             m1 * E1[2] + m2 * E2[2] + nz * n[2],
           ]);
-          b.vertex(slot, w, wn, (aoOn ? vertexAO(w, wn, occ, null) : 1) * PLATE_BRIGHT);
+          b.vertex(slot, w, wn, (aoOn ? vertexAO(w, wn, occ, null) : 1) * PLATE_BRIGHT,
+            texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
         }
     }
   }
@@ -317,15 +332,17 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   const kept = cullFacets(collectFacets(doc.cubes));
 
   if (opts.mode === 'mesh') {
-    const b = new SlotBuckets(false);
-    addShells(b, doc, data, occ, opts.ao);
-    addModules(b, doc, data, occ, opts.ao);
+    /* with textures on, the archive's own UVs and per-submesh diffuse maps are
+       emitted and triangles group by (slot, texture) instead of slot alone */
+    const b = new SlotBuckets(opts.textures);
+    addShells(b, doc, data, occ, opts.ao, opts.textures);
+    addModules(b, doc, data, occ, opts.ao, opts.textures);
     addFiller(b, kept, occ, opts.ao);
-    addPlates(b, kept, data, occ, opts.ao, opts.plateVariant);
-    addWings(b, doc, occ, opts.ao, false);
-    const { geometry, groupSlots } = b.build();
+    addPlates(b, kept, data, occ, opts.ao, opts.plateVariant, opts.textures);
+    addWings(b, doc, occ, opts.ao, opts.textures);
+    const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */
-    return { geometry, groupSlots, edges: geometry, edgesThreshold: 32 };
+    return { geometry, groupSlots, groupTex, edges: geometry, edgesThreshold: 32 };
   }
 
   const plate = opts.mode === 'plate';
@@ -358,7 +375,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   }
 
   const wingLoops = addWings(b, doc, occ, opts.ao, plate);
-  const { geometry, groupSlots } = b.build();
+  const { geometry, groupSlots, groupTex } = b.build();
 
   /* accent lines trace the facet outlines — when chamfered, the bevel strips
      are excluded so each plate gets one crisp contour instead of a double line
@@ -366,5 +383,5 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
      own separate wing edge pass. */
   const eSrc: (readonly V3[])[] = shown.filter(f => !f.plain).map(f => f.verts);
   const edges = fanGeometry([...eSrc, ...wingLoops]);
-  return { geometry, groupSlots, edges, edgesThreshold: 25 };
+  return { geometry, groupSlots, groupTex, edges, edgesThreshold: 25 };
 }

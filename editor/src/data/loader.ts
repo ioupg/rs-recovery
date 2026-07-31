@@ -3,7 +3,7 @@
 
 import type { PlateSlot } from '../core/types';
 
-export interface SubMesh { pos: number[]; nrm?: number[]; idx: number[]; tex?: string[] }
+export interface SubMesh { pos: number[]; nrm?: number[]; idx: number[]; tex?: string[]; uv?: number[] }
 
 export interface ShapeMeshEntry {
   rid: string; tris: number; code: string;
