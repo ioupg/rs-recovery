@@ -24,6 +24,8 @@ export interface BuildOptions {
   chamfer: boolean;
   ao: boolean;
   textures: boolean;
+  /** render decoration plates at all (mesh mode) */
+  plates: boolean;
   plateVariants: PlateVariants;
 }
 

@@ -452,8 +452,10 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     addShells(b, doc, data, occ, opts.ao, opts.textures);
     addModules(b, doc, data, occ, opts.ao, opts.textures);
     addFiller(b, kept, occ, opts.ao);
-    addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
-    addNonAxisPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
+    if (opts.plates) {
+      addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
+      addNonAxisPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
+    }
     addWings(b, doc, occ, opts.ao, opts.textures);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */

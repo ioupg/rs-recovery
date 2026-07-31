@@ -19,13 +19,14 @@ const RENDER_MODES: { id: 'box' | 'plate' | 'mesh'; label: string }[] = [
   { id: 'mesh', label: 'mesh' },
 ];
 
-type ToggleKey = 'edges' | 'compColors' | 'textures' | 'chamfer' | 'ao';
+type ToggleKey = 'edges' | 'compColors' | 'textures' | 'chamfer' | 'ao' | 'plates';
 const TOGGLES: { key: ToggleKey; label: string }[] = [
   { key: 'edges', label: 'edges' },
   { key: 'compColors', label: 'comp' },
   { key: 'textures', label: 'tex' },
   { key: 'chamfer', label: 'chamfer' },
   { key: 'ao', label: 'ao' },
+  { key: 'plates', label: 'плиты' },
 ];
 
 export function buildHeader(host: HTMLElement, ctx: UiContext): void {

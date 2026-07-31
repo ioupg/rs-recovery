@@ -26,8 +26,8 @@ export class EditorState {
   selection = new Set<number>();
   symmetry: SymmetrySettings = { on: false, planeX2: 0 };
   render: RenderSettings = {
-    mode: 'box', chamfer: true, ao: true, textures: true,
-    plateVariants: { quad: 5, slope: 5, tri: 0, eq: 0 }, edges: true, compColors: true,
+    mode: 'box', chamfer: true, ao: true, textures: true, plates: true,
+    plateVariants: { quad: 0, slope: 0, tri: 0, eq: 0 }, edges: true, compColors: true,
   };
   layout: ViewportLayout = 'single';
 

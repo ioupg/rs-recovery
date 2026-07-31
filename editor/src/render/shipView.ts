@@ -57,8 +57,8 @@ function clearGroup(group: THREE.Group): void {
 export class ShipView {
   private doc: ShipDoc | null = null;
   private options: RenderSettings = {
-    mode: 'box', chamfer: true, ao: true, textures: true,
-    plateVariants: { quad: 5, slope: 5, tri: 0, eq: 0 },
+    mode: 'box', chamfer: true, ao: true, textures: true, plates: true,
+    plateVariants: { quad: 0, slope: 0, tri: 0, eq: 0 },
     edges: true, compColors: true,
   };
 
@@ -104,6 +104,7 @@ export class ShipView {
       chamfer: this.options.chamfer,
       ao: this.options.ao,
       textures: this.options.textures,
+      plates: this.options.plates,
       plateVariants: this.options.plateVariants,
     };
     const built = buildShipGeometry(doc, this.data, opts);
