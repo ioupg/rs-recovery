@@ -777,7 +777,7 @@ function buildShip(name, keepView) {
         const p = rot(cb.o, corner(ci));
         return [p[0]+cb.x, p[1]+cb.y, p[2]+cb.z];
       });
-      faces.push({verts, comp: cb.comp, shape: cb.shape, sc});
+      faces.push({verts, comp: cb.comp, shape: cb.shape, sc, cube: cb});
     }
   }
   /* cull coincident faces + tris hidden under quads */
@@ -908,6 +908,26 @@ function buildShip(name, keepView) {
         const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
                            .map(x=>x/f.verts.length);
         const n = orient(nw, cen, f, occ2);
+        /* per-face plate presence, recovered from the ship files (2026-07-31):
+           an axis plate's face is R(slot.o)·(0,0,−1) — third matrix column
+           negated; the non-axis face (cut/slope/diagonal) is slot 6. Faces
+           whose slot says no plate stay bare, as authored in 2014. */
+        {
+          const sl = f.cube && f.cube.slots;
+          if (sl) {
+            const axis = Math.abs(Math.abs(n[0])+Math.abs(n[1])+Math.abs(n[2]) - 1) < 1e-6;
+            let present = false;
+            if (axis) {
+              for (let si = 0; si < 6 && si < sl.length; si++) {
+                const m = ORIENTATIONS[sl[si].o];
+                if (Math.round(-m[2]) === Math.round(n[0]) &&
+                    Math.round(-m[5]) === Math.round(n[1]) &&
+                    Math.round(-m[8]) === Math.round(n[2])) { present = !!sl[si].p; break; }
+              }
+            } else present = sl[6] ? !!sl[6].p : false;
+            if (!present) continue;
+          }
+        }
         /* the loop may wind either way; the mirror mounting needs a right-handed
            frame, or it mirrors the plate a second time in-plane and the winding
            comes out inverted on exactly those facets. Walk the loop backwards

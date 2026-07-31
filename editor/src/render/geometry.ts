@@ -10,11 +10,13 @@
    grayscale shading only — AO x facet tone x brightness factor. */
 
 import * as THREE from 'three';
-import type { MaterialSlot, ShipDoc } from '../core/types';
+import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
 import { MATERIAL_SLOTS } from '../core/types';
-import { HULL_COMP, ORIENTATIONS, WING_RING, corner, rot } from '../core/tables';
+import {
+  AXIS_FACE_KIND, HULL_COMP, ORIENTATIONS, SLOT_AXES, WING_RING, corner, plateFaceDir, rot,
+} from '../core/tables';
 import { compSlot } from '../core/materials';
-import type { GameData } from '../data/loader';
+import type { GameData, PlateMeshEntry } from '../data/loader';
 import type { BuildOptions, BuiltShip, PlateVariants } from './geometryTypes';
 import { occupancyOf, vertexAO, type Occupancy } from './ao';
 import { BLANK_UV, atlasUV } from './atlas';
@@ -264,22 +266,128 @@ function addFiller(
       handedness, so position z and normal z are negated and each triangle is
       rewound. Plates map through the affine frame the facet itself defines —
       which also means they inherit the facet culling for free. ── */
-function addPlates(
+const pickVariant = <T>(pool: readonly T[], i: number): T | undefined =>
+  pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
+
+/** Axis plates, mounted the engine's own way: the plate is authored on the
+    cell's z=0 face (relief to −z, outward) and instanced by rotating about the
+    cell centre by ORIENTATIONS[slot.o] — the face it decorates is
+    R(slot.o)·(0,0,−1) in world (fleet-verified). No mirroring, no rewinding:
+    rotations preserve handedness and the decoder already flipped to CCW. */
+function emitMountedPlate(
+  sink: (p: V3, n: V3, uv?: [number, number], tex?: string | null) => void,
+  cell: V3, slotO: number,
+  pm: { sub: { pos: number[]; nrm?: number[]; idx: number[]; uv?: number[]; tex?: string[] }[] },
+  windowK: number, texOn: boolean,
+): void {
+  const M = ORIENTATIONS[slotO];
+  if (!M) return;
+  for (const s of pm.sub) {
+    if (!s.nrm) continue;
+    const stex = texOn ? (s.tex?.[0] ?? null) : null;
+    for (const i of s.idx) {
+      const px = 0.5 + (s.pos[i * 3] - 0.5) * windowK - 0.5;
+      const py = 0.5 + (s.pos[i * 3 + 1] - 0.5) * windowK - 0.5;
+      const pz = s.pos[i * 3 + 2] - 0.5;
+      const w: V3 = [
+        M[0] * px + M[1] * py + M[2] * pz + 0.5 + cell[0],
+        M[3] * px + M[4] * py + M[5] * pz + 0.5 + cell[1],
+        M[6] * px + M[7] * py + M[8] * pz + 0.5 + cell[2],
+      ];
+      const nx = s.nrm[i * 3], ny = s.nrm[i * 3 + 1], nz = s.nrm[i * 3 + 2];
+      const n: V3 = [
+        M[0] * nx + M[1] * ny + M[2] * nz,
+        M[3] * nx + M[4] * ny + M[5] * nz,
+        M[6] * nx + M[7] * ny + M[8] * nz,
+      ];
+      sink(w, n, texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
+    }
+  }
+}
+
+/** the plate mesh a slot orientation needs on this cube, or null when the
+    shape has no face there / the face is buried under a full-cube neighbour */
+export function plateMeshFor(
+  cube: { x: number; y: number; z: number; o: number; shape: number },
+  slotO: number, data: GameData, variants: PlateVariants,
+  cubeAtCell?: (x: number, y: number, z: number) => { shape: number } | undefined,
+): { pm: PlateMeshEntry; windowK: number } | null {
+  const d = plateFaceDir(slotO);
+  const M = ORIENTATIONS[cube.o];
+  if (!M) return null;
+  // local direction = Rᵀ·d, matched against SLOT_AXES for the face kind
+  const ld: V3 = [
+    M[0] * d[0] + M[3] * d[1] + M[6] * d[2],
+    M[1] * d[0] + M[4] * d[1] + M[7] * d[2],
+    M[2] * d[0] + M[5] * d[1] + M[8] * d[2],
+  ];
+  const axis = SLOT_AXES.findIndex(a =>
+    a[0] === Math.round(ld[0]) && a[1] === Math.round(ld[1]) && a[2] === Math.round(ld[2]));
+  if (axis < 0) return null;
+  const kind = AXIS_FACE_KIND[cube.shape as ShapeId]?.[axis];
+  if (!kind) return null;
+  const nb = cubeAtCell?.(cube.x + d[0], cube.y + d[1], cube.z + d[2]);
+  if (nb && nb.shape === 0) return null;          // buried under a full cube
+  const quads = data.plateMesh.quad_all ?? [];
+  const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
+  const pm = kind === 'quad' ? pickVariant(quads, variants.quad) : pickVariant(tris, variants.tri);
+  if (!pm) return null;
+  const sm = data.shapeMesh[String(cube.shape)];
+  return { pm, windowK: ((sm && sm.window) || 1) * PLATE_MARGIN };
+}
+
+/** translucent preview triangles for the plate tool: the plate as it would be
+    mounted at slotO on this cube, or null when nothing can mount there */
+export function mountedPlatePositions(
+  cube: { x: number; y: number; z: number; o: number; shape: number },
+  slotO: number, data: GameData, variants: PlateVariants,
+): number[] | null {
+  const found = plateMeshFor(cube, slotO, data, variants);
+  if (!found) return null;
+  const pos: number[] = [];
+  emitMountedPlate((w) => { pos.push(w[0], w[1], w[2]); },
+    [cube.x, cube.y, cube.z], slotO, found.pm, found.windowK, false);
+  return pos.length ? pos : null;
+}
+
+function addAxisPlates(
+  b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy,
+  aoOn: boolean, variants: PlateVariants, texOn: boolean,
+): void {
+  const byCell = new Map<string, { shape: number }>();
+  for (const c of doc.cubes) byCell.set(`${c.x},${c.y},${c.z}`, c);
+  const cubeAt = (x: number, y: number, z: number) => byCell.get(`${x},${y},${z}`);
+  for (const cb of doc.cubes) {
+    if (!cb.slots) continue;                       // editor-created: bare by default
+    const mslot = slotOf(cb.comp);
+    for (let i = 0; i < 6 && i < cb.slots.length; i++) {
+      const sl = cb.slots[i];
+      if (!sl.p) continue;
+      const found = plateMeshFor(cb, sl.o, data, variants, cubeAt);
+      if (!found) continue;
+      emitMountedPlate((w, n, uv, tex) => {
+        b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
+      }, [cb.x, cb.y, cb.z], sl.o, found.pm, found.windowK, texOn);
+    }
+  }
+}
+
+/* ── non-axis faces (k7 cut / k6 slope / k4 diagonal, slot 6): the archive has
+      no meshes authored on those planes, so the stand-ins map through the
+      affine frame the facet defines, exactly as the reference viewer validated
+      (mirrored mounting, rewound triangles, right-handed frame). ── */
+function addNonAxisPlates(
   b: SlotBuckets, kept: readonly Facet[], data: GameData, occ: Occupancy,
   aoOn: boolean, variants: PlateVariants, texOn: boolean,
 ): void {
   const quads = data.plateMesh.quad_all ?? [];
   const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
-  const pick = <T>(pool: readonly T[], i: number): T | undefined =>
-    pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
   for (const f of kept) {
-    /* recovered per-face decoration: skip faces whose slot says no plate */
-    if (f.plate === false) continue;
-    /* plate type is exact per face: axis quad p1111 / slope p2121 (quad pool,
-       sheared by the frame) · axis tri p121 / cut p222A,V (tri pool) */
+    if (!f.nonAxis || f.plate === false) continue;
+    /* slope p2121 (quad pool, sheared) · cut/diagonal p222A,V (tri pool) */
     const pm = f.verts.length === 4
-      ? pick(quads, f.nonAxis ? variants.slope : variants.quad)
-      : pick(tris, f.nonAxis ? variants.eq : variants.tri);
+      ? pickVariant(quads, variants.slope)
+      : pickVariant(tris, variants.eq);
     if (!pm || pm.outline.length < 3) continue;
     const nw = facetNormal(f.verts);
     const cen = centroid(f.verts);
@@ -344,7 +452,8 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     addShells(b, doc, data, occ, opts.ao, opts.textures);
     addModules(b, doc, data, occ, opts.ao, opts.textures);
     addFiller(b, kept, occ, opts.ao);
-    addPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
+    addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
+    addNonAxisPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
     addWings(b, doc, occ, opts.ao, opts.textures);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */

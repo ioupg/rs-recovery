@@ -222,6 +222,38 @@ export const FACE_SLOT: Record<ShapeId, readonly number[]> = Object.fromEntries(
 /** number of plate slots the exe considers per shape (platesCount, 0x440120) */
 export const PLATES_COUNT: Record<ShapeId, number> = { 0: 6, 1: 7, 2: 5, 3: 4 };
 
+/* Axis plates are authored on the cell's z=0 face (relief to −z, outward) and
+   mounted by rotating about the cell centre by ORIENTATIONS[slot.o]; the face
+   a plate decorates is therefore R(slot.o)·(0,0,−1) in WORLD coordinates —
+   confirmed fleet-wide (98% at cube o=0, 87% presence-exteriority agreement on
+   rotated cubes vs ≤59% for any slot-index-based frame). */
+
+/** world direction of the face a plate with orientation o decorates */
+export const plateFaceDir = (o: number): [number, number, number] => rotDir(o, [0, 0, -1]);
+
+/** canonical (smallest) orientation mounting a plate on each SLOT_AXES direction */
+export const PLATE_CANON: readonly number[] = SLOT_AXES.map(axis => {
+  for (let o = 0; o < 24; o++) {
+    const d = plateFaceDir(o);
+    if (d[0] === axis[0] && d[1] === axis[1] && d[2] === axis[2]) return o;
+  }
+  throw new Error('unreachable: every axis is hit by some orientation');
+});
+
+/** face kind on each local axis (SLOT_AXES order) per shape: the plate mesh a
+    mounted plate needs there — full quad, corner triangle, or no face at all */
+export const AXIS_FACE_KIND: Record<ShapeId, readonly ('quad' | 'tri' | null)[]> =
+  Object.fromEntries(
+    (Object.keys(FACES).map(Number) as ShapeId[]).map(s => {
+      const kinds: ('quad' | 'tri' | null)[] = [null, null, null, null, null, null];
+      FACES[s].forEach((loop, fi) => {
+        const slot = FACE_SLOT[s][fi];
+        if (slot < 6) kinds[slot] = loop.length === 4 ? 'quad' : 'tri';
+      });
+      return [s, kinds];
+    }),
+  ) as unknown as Record<ShapeId, readonly ('quad' | 'tri' | null)[]>;
+
 /** exe PLATE_TYPE[shape][plateIndex] names, table 0x1db70b0 / 0x1db7218:
     face plate types by geometry — axis quad p1111, axis tri p121,
     k6 slope p2121, k4 diagonal p222A, k7 cut p222V. */

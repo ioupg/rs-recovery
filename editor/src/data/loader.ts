@@ -55,28 +55,12 @@ async function json<T>(name: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Default plate slots for editor-created cubes: plate orientation by fleet
-    majority per (cube orientation, slot index); plates PRESENT everywhere —
-    presence is decoration state, and a fresh cube ships fully plated. */
-export function computeSlotDefaults(ships: Record<string, ShipEntry>): PlateSlot[][] {
-  const votes = new Map<string, Map<number, number>>();
-  for (const ship of Object.values(ships))
-    for (const c of ship.cubes)
-      c.slots.forEach((s, i) => {
-        const k = `${c.o},${i}`;
-        const m = votes.get(k) ?? votes.set(k, new Map()).get(k)!;
-        m.set(s.o, (m.get(s.o) ?? 0) + 1);
-      });
-  const out: PlateSlot[][] = [];
-  for (let o = 0; o < 24; o++) {
-    out[o] = [];
-    for (let i = 0; i < 7; i++) {
-      const m = votes.get(`${o},${i}`);
-      const best = m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : 0;
-      out[o][i] = { o: best, p: 1, f: 0 };
-    }
-  }
-  return out;
+/** Default plate slots for editor-created cubes: BARE — decoration is applied
+    per face with the plate tool, never draped over the whole ship. (The ships
+    parameter stays for signature stability; nothing is derived from it.) */
+export function computeSlotDefaults(_ships: Record<string, ShipEntry>): PlateSlot[][] {
+  return Array.from({ length: 24 }, () =>
+    Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })));
 }
 
 export async function loadGameData(): Promise<GameData> {

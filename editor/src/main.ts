@@ -100,7 +100,7 @@ async function init(): Promise<void> {
   view.setOptions(state.render);
 
   new EditorController({
-    state, model, history, view, viewports, canvas,
+    state, model, history, view, viewports, canvas, data,
     overlay: sceneCtx.overlayRoot,
     setStatus: refs.setStatus,
     fitView: actions.fitView,

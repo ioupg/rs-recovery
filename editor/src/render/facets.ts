@@ -67,8 +67,10 @@ export function collectFacets(cubes: readonly Cube[]): Facet[] {
         return [p[0] + cb.x, p[1] + cb.y, p[2] + cb.z] as V3;
       });
       const slot = FACE_SLOT[cb.shape as ShapeId][fi];
-      /* cubes without slots (editor-created, defaults pending) are fully plated */
-      const plate = cb.slots?.[slot] ? cb.slots[slot].p !== 0 : true;
+      /* presence here is meaningful only for the non-axis face (slot 6) — axis
+         plates resolve their face from slot.o itself, in addAxisPlates. Cubes
+         without slot data are bare by default. */
+      const plate = slot === 6 ? (cb.slots?.[6] ? cb.slots[6].p !== 0 : false) : undefined;
       faces.push({
         verts, comp: cb.comp, shape: cb.shape as ShapeId, sc, k: keyOf(verts),
         plate, nonAxis: slot === 6,

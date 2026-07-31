@@ -69,6 +69,7 @@ export class ShipView {
 
   private readonly selectionGroup = new THREE.Group();
   private readonly ghostGroup = new THREE.Group();
+  private readonly plateGhostGroup = new THREE.Group();
   private readonly symmetryGroup = new THREE.Group();
 
   constructor(
@@ -77,7 +78,8 @@ export class ShipView {
     private readonly data: GameData,
     private resolveEntity: EntityResolver = () => undefined,
   ) {
-    this.sceneCtx.overlayRoot.add(this.selectionGroup, this.ghostGroup, this.symmetryGroup);
+    this.sceneCtx.overlayRoot.add(
+      this.selectionGroup, this.ghostGroup, this.plateGhostGroup, this.symmetryGroup);
   }
 
   get pickMesh(): THREE.Mesh | null { return this._pickMesh; }
@@ -192,6 +194,21 @@ export class ShipView {
     lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
     this.ghostGroup.add(new THREE.LineSegments(lgeo,
       new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })));
+  }
+
+  /** plate-tool preview: the plate as it would sit on the hovered face —
+      blue when a click would mount it, brass over an existing plate */
+  setPlateGhost(positions: number[] | null, wouldAdd: boolean): void {
+    clearGroup(this.plateGhostGroup);
+    if (!positions || !positions.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.computeVertexNormals();
+    this.plateGhostGroup.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: wouldAdd ? 0x4a90d9 : 0xc9a227,
+      transparent: true, opacity: wouldAdd ? 0.5 : 0.35,
+      depthTest: true, side: THREE.DoubleSide,
+    })));
   }
 
   setSymmetryPlane(planeX2: number | null): void {
