@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import type { Cube, ShapeId, Vec3, Wing } from '../core/types';
 import {
-  COMP_NAMES, PLATE_CANON, SLOT_AXES, WING_NAMES, plateFaceDir, rotateOrient,
+  COMP_NAMES, SLOT_AXES, WING_NAMES, plateCanonical, plateFaceDir, rotateOrient,
 } from '../core/tables';
 import type { PlateSlot } from '../core/types';
 import { mountedPlatePositions } from '../render/geometry';
@@ -407,7 +407,7 @@ export class EditorController {
           return { idx: i, canonO: cube.slots[i].o };
       }
     }
-    return { idx: axisIdx, canonO: PLATE_CANON[axisIdx] };
+    return { idx: axisIdx, canonO: plateCanonical(cube.shape as ShapeId, cube.o, dir as [number, number, number]) };
   }
 
   private plateState(cube: Cube, res: { idx: number }): boolean {

@@ -53,7 +53,7 @@ AI_PROMPT = (
 )
 
 HEIGHT_BLUR_SIGMA = 1.2
-NORMAL_STRENGTH = 2.0
+NORMAL_STRENGTH = 1.6
 ROUGHNESS_BLUR_SIGMA = 2.0
 ROUGHNESS_MIN = 0.55
 ROUGHNESS_MAX = 1.0
@@ -201,6 +201,32 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
     return cropped
 
 
+WING_SOLAR_PROMPT = (
+    "A perfectly seamless tileable texture, top-down orthographic: dark "
+    "blue-black photovoltaic solar panel cells in a regular grid, thin silver "
+    "busbar lines, subtle glass reflections and slight cell-to-cell hue "
+    "variation, spacecraft solar array style, worn industrial look. Flat "
+    "lighting, no vignette, no border, no text, edges must tile seamlessly. "
+    "1024x1024."
+)
+
+
+def gemini_generate(prompt: str, model: str, api_key: str) -> Image.Image:
+    """Text-to-image via the same Gemini endpoint (no input image)."""
+    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    url = GEMINI_ENDPOINT.format(model=model, key=api_key)
+    req = urllib.request.Request(
+        url, data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    for part in payload["candidates"][0]["content"]["parts"]:
+        inline = part.get("inline_data") or part.get("inlineData")
+        if inline and inline.get("data"):
+            return Image.open(io.BytesIO(base64.b64decode(inline["data"]))).convert("RGB")
+    raise RuntimeError("no inline_data image part in Gemini response")
+
+
 def gemini_upscale(img: Image.Image, model: str, api_key: str) -> Image.Image:
     """Send a 2x2-tiled version of `img` to the Gemini image model and
     return the seamlessness-preserving 4x upscaled tile. Raises on any
@@ -252,7 +278,8 @@ def gemini_upscale(img: Image.Image, model: str, api_key: str) -> Image.Image:
 # Per-texture processing
 # --------------------------------------------------------------------------
 
-def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None) -> tuple[str, dict]:
+def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None,
+                maps_only: bool = False) -> tuple[str, dict]:
     filename = src_path.name
     assert filename.endswith(".png")
     archive_name = filename[: -len(".png")]  # e.g. "craftHull.bmp"
@@ -268,7 +295,13 @@ def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None) -
     ai_note = ""
     diffuse_img = orig_img
 
-    if use_ai:
+    if maps_only and out_diffuse.exists():
+        # regenerate _n/_r only, keeping the (possibly AI-upscaled) diffuse
+        diffuse_img = Image.open(out_diffuse).convert("RGB")
+        ai_used = diffuse_img.size != orig_size
+        use_ai = False
+        ai_note = " [maps-only]"
+    elif use_ai:
         if not api_key:
             ai_note = " [ai: no key, classical fallback]"
         else:
@@ -281,23 +314,37 @@ def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None) -
                 diffuse_img = orig_img
 
     # --- diffuse ---
-    if ai_used:
+    if maps_only:
+        pass                                   # existing diffuse stays untouched
+    elif ai_used:
         diffuse_img.save(out_diffuse)
     else:
         shutil.copyfile(src_path, out_diffuse)
 
-    diffuse_arr = np.array(diffuse_img.convert("RGB"))
-
-    # --- height (intermediate only, not written to disk) ---
-    height = make_height(diffuse_arr)
-
-    # --- normal map ---
+    # --- height / gradients at the ORIGINAL feature scale ---
+    # Deriving gradients on 4x-upscaled pixels makes low-res sources (64²
+    # gratings, 32² balk) read as chunky bas-relief. Compute the maps at the
+    # source resolution and upscale them to match the diffuse: structure stays,
+    # harshness goes; the AI detail still lives in the diffuse itself.
+    base_arr = np.array(orig_img.convert("RGB"))
+    height = make_height(base_arr)
     dx, dy = sobel_wrap(height)
     normal_rgb = make_normal_map(dx, dy, NORMAL_STRENGTH)
-    Image.fromarray(normal_rgb, mode="RGB").save(out_normal)
-
-    # --- roughness map ---
     rough_gray = make_roughness_map(dx, dy)
+
+    if diffuse_img.size != orig_size:
+        normal_up = Image.fromarray(normal_rgb, mode="RGB").resize(diffuse_img.size, Image.LANCZOS)
+        # re-normalize the interpolated vectors
+        v = np.asarray(normal_up, dtype=np.float32) / 127.5 - 1.0
+        norm = np.sqrt((v * v).sum(axis=2, keepdims=True))
+        norm[norm < 1e-6] = 1.0
+        v /= norm
+        normal_rgb = ((v + 1.0) * 127.5).clip(0, 255).astype(np.uint8)
+        rough_gray = np.asarray(
+            Image.fromarray(rough_gray, mode="L").resize(diffuse_img.size, Image.LANCZOS),
+            dtype=np.uint8)
+
+    Image.fromarray(normal_rgb, mode="RGB").save(out_normal)
     Image.fromarray(rough_gray, mode="L").save(out_rough)
 
     manifest_entry = {"d": True, "n": True, "r": True}
@@ -318,6 +365,10 @@ def main() -> int:
     parser.add_argument("--ai", action="store_true", help="enable the Gemini/Nano Banana AI upscale stage")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Gemini image model (default: {DEFAULT_MODEL})")
     parser.add_argument("--only", default=None, help="process a single texture by archive name (e.g. craftHull.bmp)")
+    parser.add_argument("--maps-only", action="store_true",
+                        help="regenerate _n/_r from the existing (possibly AI-upscaled) diffuse; never touches diffuse")
+    parser.add_argument("--gen-wing", action="store_true",
+                        help="generate the synthetic wing_solar texture via the AI (requires key)")
     args = parser.parse_args()
 
     if not SRC_DIR.is_dir():
@@ -351,11 +402,33 @@ def main() -> int:
         except (OSError, json.JSONDecodeError):
             manifest = {}
 
-    for src_path in src_files:
-        summary, entry = process_one(src_path, args.ai, args.model, api_key)
-        archive_name = src_path.name[: -len(".png")]
-        manifest[archive_name] = entry
-        print(summary)
+    if manifest_path.is_file() and (args.maps_only or args.gen_wing):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+
+    if args.gen_wing:
+        key = resolve_api_key()
+        if not key:
+            print("error: --gen-wing needs the AI key", file=sys.stderr)
+            return 1
+        img = gemini_generate(WING_SOLAR_PROMPT, args.model, key)
+        img.save(OUT_DIR / "wing_solar.png")
+        base = np.array(img.convert("RGB"))
+        height = make_height(base)
+        dx, dy = sobel_wrap(height)
+        Image.fromarray(make_normal_map(dx, dy, NORMAL_STRENGTH), mode="RGB").save(OUT_DIR / "wing_solar_n.png")
+        Image.fromarray(make_roughness_map(dx, dy), mode="L").save(OUT_DIR / "wing_solar_r.png")
+        manifest["wing_solar"] = {"d": True, "n": True, "r": True}
+        print(f"wing_solar generated: {img.size[0]}x{img.size[1]}")
+    else:
+        for src_path in src_files:
+            summary, entry = process_one(src_path, args.ai, args.model, api_key,
+                                         maps_only=args.maps_only)
+            archive_name = src_path.name[: -len(".png")]
+            manifest[archive_name] = entry
+            print(summary)
 
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"manifest written: {manifest_path} ({len(manifest)} entries)")

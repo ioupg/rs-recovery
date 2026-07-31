@@ -68,5 +68,10 @@
     "d": true,
     "n": true,
     "r": true
+  },
+  "wing_solar": {
+    "d": true,
+    "n": true,
+    "r": true
   }
 }

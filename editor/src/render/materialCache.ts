@@ -48,7 +48,7 @@ export class MaterialCache {
         m.map = maps.map;
         if (maps.normalMap) {
           m.normalMap = maps.normalMap;
-          m.normalScale.set(0.65, 0.65);
+          m.normalScale.set(0.5, 0.5);
         }
         if (maps.roughnessMap) m.roughnessMap = maps.roughnessMap;
       } else if (v.textured) m.map = getAtlasTexture();

@@ -74,13 +74,14 @@ class SlotBuckets {
   fan(
     slot: MaterialSlot, vs: readonly V3[], n: V3,
     shade: (i: number) => number, uv?: (i: number) => readonly [number, number],
+    tex: string | null = null,
   ): void {
     for (let i = 1; i < vs.length - 1; i++) {
       const w = cross(sub(vs[i], vs[0]), sub(vs[i + 1], vs[0]));
       let tn = n;
       if (len(w) > 1e-12) { tn = norm(w); if (dot(tn, n) < 0) tn = [-tn[0], -tn[1], -tn[2]]; }
       for (const j of [0, i, i + 1])
-        this.vertex(slot, vs[j], tn, shade(j), uv ? uv(j) : undefined);
+        this.vertex(slot, vs[j], tn, shade(j), uv ? uv(j) : undefined, tex);
     }
   }
 
@@ -139,6 +140,7 @@ function fanGeometry(loops: readonly (readonly V3[])[]): THREE.BufferGeometry {
       (viewer 1053-1096). Present in every render mode. ── */
 function addWings(
   b: SlotBuckets, doc: ShipDoc, occ: Occupancy, aoOn: boolean, uvOn: boolean,
+  solar = false,
 ): V3[][] {
   const loops: V3[][] = [];
   for (const el of doc.wings) {
@@ -152,7 +154,13 @@ function addWings(
     const flip: V3 = [-n[0], -n[1], -n[2]];
     /* a wing is open on both sides, so occlude it symmetrically */
     const wao = vs.map(v => (vertexAO(v, n, occ, null) + vertexAO(v, flip, occ, null)) / 2);
-    b.fan('wing', vs, n, i => (aoOn ? wao[i] : 1), uvOn ? () => BLANK_UV : undefined);
+    /* solar skin: planar world-scale UVs so the cell grid tiles per hull cell */
+    const e1 = norm(sub(vs[1], vs[0])), e2 = cross(n, e1);
+    const uvFn = solar && uvOn
+      ? (i: number): [number, number] =>
+          [dot(sub(vs[i], vs[0]), e1), dot(sub(vs[i], vs[0]), e2)]
+      : uvOn ? () => BLANK_UV as [number, number] : undefined;
+    b.fan('wing', vs, n, i => (aoOn ? wao[i] : 1), uvFn, solar && uvOn ? 'wing_solar' : null);
     loops.push(vs);
   }
   return loops;
@@ -291,12 +299,12 @@ function emitMountedPart(
   sink: (p: V3, n: V3, uv?: [number, number], tex?: string | null) => void,
   cell: V3, M: readonly number[] | undefined,
   pm: { sub: { pos: number[]; nrm?: number[]; idx: number[]; uv?: number[]; tex?: string[] }[] },
-  windowK: number, texOn: boolean,
+  windowK: number, texOn: boolean, texOverride?: string,
 ): void {
   if (!M) return;
   for (const s of pm.sub) {
     if (!s.nrm) continue;
-    const stex = texOn ? (s.tex?.[0] ?? null) : null;
+    const stex = texOn ? (texOverride ?? s.tex?.[0] ?? null) : null;
     for (const i of s.idx) {
       const px = 0.5 + (s.pos[i * 3] - 0.5) * windowK - 0.5;
       const py = 0.5 + (s.pos[i * 3 + 1] - 0.5) * windowK - 0.5;
@@ -429,7 +437,7 @@ function addWingSkins(
     if (!pm || !M) return;
     emitMountedPart((w, n, uv, tex) => {
       b.vertex('wing', w, n, aoOn ? vertexAO(w, n, occ, null) : 1, uv, tex ?? null);
-    }, [el.x, el.y, el.z], M, pm, 1, texOn);
+    }, [el.x, el.y, el.z], M, pm, 1, texOn, 'wing_solar');
     skinned.add(i);
   });
   return skinned;
@@ -450,7 +458,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
        overlay for spatial reference. */
     const b = new SlotBuckets(opts.textures);
     addModules(b, doc, data, occ, opts.ao, opts.textures, true);
-    addWings(b, doc, occ, opts.ao, opts.textures);
+    addWings(b, doc, occ, opts.ao, opts.textures, true);
     const { geometry, groupSlots, groupTex } = b.build();
     const kept = cullFacets(collectFacets(doc.cubes));
     const frame = fanGeometry(kept.map(f => f.verts));
@@ -472,7 +480,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     }
     const skinned = addWingSkins(b, doc, data, occ, opts.ao, opts.textures);
     addWings(b, { ...doc, wings: doc.wings.filter((_, i) => !skinned.has(i)) },
-      occ, opts.ao, opts.textures);
+      occ, opts.ao, opts.textures, true);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */
     return { geometry, groupSlots, groupTex, edges: geometry, edgesThreshold: 32 };

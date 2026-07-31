@@ -116,7 +116,7 @@ export class ShipView {
       /* system_colors carries the 2014 engine's own system palette — tinting
          it would recolour the modules it exists to colour */
       return this.cache.get(resolved, {
-        textured, map, untinted: map === 'system_colors.png' && this.options.compColors,
+        textured, map, untinted: (map === 'system_colors.png' && this.options.compColors) || map === 'wing_solar',
       });
     });
 
@@ -137,7 +137,11 @@ export class ShipView {
     }
 
     const picked = buildPickGeometry(doc, this.options.mode === 'naked' ? NAKED_PICK_SCALE : 1);
-    const pickMesh = new THREE.Mesh(picked.geometry, new THREE.MeshBasicMaterial());
+    /* DoubleSide is load-bearing: FACES winding is not consistently outward
+       (the k6 slope loop winds inward) and the raycaster honours material
+       side — FrontSide would make those faces unclickable */
+    const pickMesh = new THREE.Mesh(picked.geometry,
+      new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     pickMesh.visible = false;
     this.sceneCtx.shipRoot.add(pickMesh);
     this._pickMesh = pickMesh;

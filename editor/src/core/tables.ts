@@ -240,6 +240,49 @@ export const PLATE_CANON: readonly number[] = SLOT_AXES.map(axis => {
   throw new Error('unreachable: every axis is hit by some orientation');
 });
 
+/** Canonical mount orientation for a FRESH plate on the face of `cube` that
+    points along world `dir` — of the four spins that land on that face, pick
+    one whose footprint lies on the shape's actual face. For a triangular face
+    (wedge/tetra sides) only one spin covers the material half; the p121 plate
+    is authored over corners (0,0),(1,0),(0,1) of the z=0 cell face. */
+export function plateCanonical(
+  shape: ShapeId, cubeO: number, dir: readonly [number, number, number],
+): number {
+  const M = ORIENTATIONS[cubeO];
+  const local: [number, number, number] = [
+    M[0] * dir[0] + M[3] * dir[1] + M[6] * dir[2],
+    M[1] * dir[0] + M[4] * dir[1] + M[7] * dir[2],
+    M[2] * dir[0] + M[5] * dir[1] + M[8] * dir[2],
+  ];
+  const axis = SLOT_AXES.findIndex(a =>
+    a[0] === Math.round(local[0]) && a[1] === Math.round(local[1]) && a[2] === Math.round(local[2]));
+  const fi = axis >= 0 ? FACE_SLOT[shape].indexOf(axis) : -1;
+  const faceCorners = fi >= 0
+    ? new Set(FACES[shape][fi].map(ci => corner(ci).join(',')))
+    : null;
+  /* authored tri plate corners on the z=0 cell face */
+  const authored: Vec3[] = [[0, 0, 0], [1, 0, 0], [0, 1, 0]];
+  let fallback = -1;
+  for (let o = 0; o < 24; o++) {
+    const d = plateFaceDir(o);
+    if (d[0] !== dir[0] || d[1] !== dir[1] || d[2] !== dir[2]) continue;
+    if (fallback < 0) fallback = o;
+    if (!faceCorners) return o;
+    /* world mount = R(o); into the local frame via R(cubeO)ᵀ */
+    const ok = authored.every(p => {
+      const w = rot(o, p);
+      const l = [
+        M[0] * (w[0] - 0.5) + M[3] * (w[1] - 0.5) + M[6] * (w[2] - 0.5) + 0.5,
+        M[1] * (w[0] - 0.5) + M[4] * (w[1] - 0.5) + M[7] * (w[2] - 0.5) + 0.5,
+        M[2] * (w[0] - 0.5) + M[5] * (w[1] - 0.5) + M[8] * (w[2] - 0.5) + 0.5,
+      ];
+      return faceCorners.has(l.map(Math.round).join(','));
+    });
+    if (ok) return o;
+  }
+  return fallback;
+}
+
 /** face kind on each local axis (SLOT_AXES order) per shape: the plate mesh a
     mounted plate needs there — full quad, corner triangle, or no face at all */
 export const AXIS_FACE_KIND: Record<ShapeId, readonly ('quad' | 'tri' | null)[]> =
