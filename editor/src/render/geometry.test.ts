@@ -42,7 +42,7 @@ function docOf(name: string): ShipDoc {
 }
 
 const opts = (over: Partial<BuildOptions>): BuildOptions => ({
-  mode: 'box', chamfer: false, ao: true, textures: false, plates: true,
+  mode: 'box', ao: true, textures: false, plates: true,
   plateVariants: { quad: 0, slope: 0, tri: 0, eq: 0 }, ...over,
 });
 
@@ -88,11 +88,12 @@ describe('buildShipGeometry', () => {
     for (let i = 0; i < col.length; i++) expect(col[i]).toBe(1);
   });
 
-  it('plate mode: chamfer adds vertices and every vertex gets an atlas UV', () => {
+  it('plate mode: same facets as box plus atlas UVs and tone jitter', () => {
     const box = buildShipGeometry(doc, data, opts({ mode: 'box' }));
-    const built = buildShipGeometry(doc, data, opts({ mode: 'plate', chamfer: true }));
+    const built = buildShipGeometry(doc, data, opts({ mode: 'plate' }));
     const pos = built.geometry.getAttribute('position');
-    expect(pos.count).toBeGreaterThan(box.geometry.getAttribute('position').count);
+    /* chamfer is gone: plate mode carries exactly the culled facet set */
+    expect(pos.count).toBe(box.geometry.getAttribute('position').count);
     expect(pos.array.length % 9).toBe(0);
 
     const uv = built.geometry.getAttribute('uv');
@@ -110,8 +111,7 @@ describe('buildShipGeometry', () => {
     }
     expect(col.some(v => v > 1)).toBe(true);
     expect(built.edgesThreshold).toBe(25);
-    /* the edge overlay excludes chamfer strips: fewer triangles than the solid */
-    expect(built.edges!.getAttribute('position').count).toBeLessThan(pos.count);
+    expect(built.edges!.getAttribute('position').count).toBe(pos.count);
   });
 
   it('mesh mode: every used slot carries whole triangles', () => {
@@ -138,7 +138,7 @@ describe('buildShipGeometry', () => {
 
   it('wings render in all three modes, in the wing slot', () => {
     for (const mode of ['box', 'plate', 'mesh'] as const) {
-      const built = buildShipGeometry(winged, data, opts({ mode, chamfer: true }));
+      const built = buildShipGeometry(winged, data, opts({ mode, }));
       expect(built.groupSlots).toContain('wing');
       const g = built.geometry.groups[built.groupSlots.indexOf('wing')];
       expect(g.count % 3).toBe(0);
@@ -149,7 +149,7 @@ describe('buildShipGeometry', () => {
   it('builds every ship in the fleet in every mode', () => {
     for (const name of Object.keys(ships))
       for (const mode of ['box', 'plate'] as const) {
-        const built = buildShipGeometry(docOf(name), data, opts({ mode, chamfer: true }));
+        const built = buildShipGeometry(docOf(name), data, opts({ mode, }));
         expect(built.geometry.getAttribute('position').count % 3).toBe(0);
         expect(built.geometry.getAttribute('position').count).toBeGreaterThan(0);
       }

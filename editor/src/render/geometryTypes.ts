@@ -21,7 +21,6 @@ export interface PlateVariants {
 
 export interface BuildOptions {
   mode: RenderMode;
-  chamfer: boolean;
   ao: boolean;
   textures: boolean;
   /** render decoration plates at all (mesh mode) */

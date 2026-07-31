@@ -20,12 +20,11 @@ const RENDER_MODES: { id: 'box' | 'plate' | 'mesh' | 'naked'; label: string }[] 
   { id: 'naked', label: 'naked' },
 ];
 
-type ToggleKey = 'edges' | 'compColors' | 'textures' | 'chamfer' | 'ao' | 'plates';
+type ToggleKey = 'edges' | 'compColors' | 'textures' | 'ao' | 'plates';
 const TOGGLES: { key: ToggleKey; label: string }[] = [
   { key: 'edges', label: 'edges' },
   { key: 'compColors', label: 'comp' },
   { key: 'textures', label: 'tex' },
-  { key: 'chamfer', label: 'chamfer' },
   { key: 'ao', label: 'ao' },
   { key: 'plates', label: 'плиты' },
 ];

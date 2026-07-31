@@ -129,7 +129,6 @@
   <button id="btnEdge" aria-pressed="true">edges</button>
   <button id="btnComp" aria-pressed="true">compartments</button>
   <button id="btnTex" aria-pressed="true">textures</button>
-  <button id="btnCham" aria-pressed="true">chamfer</button>
   <button id="btnAO" aria-pressed="true">shading</button>
   <button id="btnParts" aria-pressed="false" title="Recovered part meshes in place of the procedural facets">parts</button>
   <button id="btnSpace" aria-pressed="false" title="Space instead of the editor grid">space</button>
@@ -263,104 +262,6 @@ function orient(n, cen, f, occ) {
   return at(+1) > at(-1) ? [-n[0],-n[1],-n[2]] : n;
 }
 
-function chamferFaces(kept, b) {
-  const {sub, add, mul, cross, dot, len} = V3;
-  /* 1 — inset each facet within its own plane */
-  const F = kept.map(f => {
-    const n = f.verts.length;
-    const c = mul(f.verts.reduce((s,v)=>add(s,v), [0,0,0]), 1/n);
-    let dmin = Infinity;
-    for (let i=0; i<n; i++) {
-      const a = f.verts[i], e = sub(f.verts[(i+1)%n], a);
-      dmin = Math.min(dmin, len(cross(e, sub(c,a))) / (len(e)||1));
-    }
-    const t = Math.min(b/dmin, .4);
-    return {verts:f.verts, comp:f.comp, k:f.k, sc:f.sc, iv:f.verts.map(v=>add(v, mul(sub(c,v), t)))};
-  });
-
-  /* 2 — index edges and vertex incidences */
-  const E = new Map(), VI = new Map();
-  F.forEach((f, fi) => {
-    const n = f.verts.length;
-    for (let i=0; i<n; i++) {
-      const j = (i+1)%n;
-      const ek = [vkey(f.verts[i]), vkey(f.verts[j])].sort().join('|');
-      (E.get(ek) || E.set(ek, []).get(ek)).push({fi, i, j});
-      (VI.get(vkey(f.verts[i])) || VI.set(vkey(f.verts[i]), []).get(vkey(f.verts[i])))
-        .push({fi, li:i});
-    }
-  });
-
-  const out = F.map(f => ({verts:f.iv, comp:f.comp, k:f.k, sc:f.sc}));
-
-  /* 3 — bevel strip per manifold edge; elsewhere (open or non-manifold edges,
-        where a wedge slope abuts a cube plate) drop a flap back to the original
-        edge so the inset never tears a hole in the hull */
-  for (const [, uses] of E) {
-    if (uses.length === 2) {
-      const [A, B] = uses, fa = F[A.fi], fb = F[B.fi];
-      const at = k => fb.verts.findIndex(v => vkey(v) === k);
-      const bi = at(vkey(fa.verts[A.i])), bj = at(vkey(fa.verts[A.j]));
-      if (bi >= 0 && bj >= 0) {
-        out.push({verts:[fa.iv[A.i], fa.iv[A.j], fb.iv[bj], fb.iv[bi]],
-                  comp:fa.comp, k:'b'+fa.k+A.i, plain:true,
-                  sc: fa.sc && fb.sc &&
-                      [(fa.sc[0]+fb.sc[0])/2, (fa.sc[1]+fb.sc[1])/2, (fa.sc[2]+fb.sc[2])/2]});
-        continue;
-      }
-    }
-    for (const U of uses) {
-      const f = F[U.fi];
-      out.push({verts:[f.iv[U.i], f.iv[U.j], f.verts[U.j], f.verts[U.i]],
-                comp:f.comp, k:'f'+f.k+U.i, plain:true, sc:f.sc});
-    }
-  }
-
-  /* 4 — corner patch per vertex: walk the facet ring through shared edges */
-  for (const [vkStr, inc] of VI) {
-    if (inc.length < 3) continue;
-    const seen = new Set();
-    const step = (fi, li, dir) => {            // → neighbouring facet across one edge at V
-      const f = F[fi], n = f.verts.length;
-      const o = dir > 0 ? (li+1)%n : (li-1+n)%n;
-      const ek = [vkey(f.verts[li]), vkey(f.verts[o])].sort().join('|');
-      const uses = E.get(ek);
-      if (!uses || uses.length !== 2) return null;
-      const nfi = uses[0].fi === fi ? uses[1].fi : uses[0].fi;
-      const nli = F[nfi].verts.findIndex(v => vkey(v) === vkStr);
-      return nli < 0 ? null : {fi:nfi, li:nli};
-    };
-    for (const start of inc) {
-      if (seen.has(start.fi)) continue;
-      let ring = [start], cur = start, closed = false;
-      for (let guard=0; guard<12; guard++) {          // forward
-        const nx = step(cur.fi, cur.li, +1);
-        if (!nx) break;
-        if (nx.fi === start.fi) { closed = true; break; }
-        if (ring.some(r=>r.fi===nx.fi)) break;
-        ring.push(nx); cur = nx;
-      }
-      if (!closed) {                                   // open fan → extend backwards
-        cur = start;
-        for (let guard=0; guard<12; guard++) {
-          const pv = step(cur.fi, cur.li, -1);
-          if (!pv || ring.some(r=>r.fi===pv.fi)) break;
-          ring.unshift(pv); cur = pv;
-        }
-      }
-      ring.forEach(r=>seen.add(r.fi));
-      if (ring.length < 3) continue;
-      const scs = ring.map(r=>F[r.fi].sc).filter(Boolean);
-      out.push({verts: ring.map(r => F[r.fi].iv[r.li]),
-                comp: F[ring[0].fi].comp, k:'c'+vkStr, plain:true,
-                sc: scs.length === ring.length
-                    ? scs.reduce((a,s)=>[a[0]+s[0],a[1]+s[1],a[2]+s[2]],[0,0,0])
-                         .map(x=>x/scs.length)
-                    : undefined});
-    }
-  }
-  return out;
-}
 function rot(o, v) {           // R·(v−½)+½  — world-integer result
   const m = ORIENTATIONS[o];
   const x=v[0]-.5, y=v[1]-.5, z=v[2]-.5;
@@ -735,7 +636,7 @@ renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *
 
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
-let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true, partsOn=false;
+let compColorOn=true, edgesOn=true, texOn=true, aoOn=true, partsOn=false;
 let spaceOn=false, bloomOn=false;
 /* which decoration plate to use — the archive has 11 square candidates and the
    engine's choice is not recoverable, so it is exposed rather than hard-coded */
@@ -991,7 +892,7 @@ function buildShip(name, keepView) {
     return;
   }
 
-  const shown = chamferOn ? chamferFaces(kept, .07) : kept;
+  const shown = kept;
 
   /* geometry: non-indexed triangles, vertex colors with per-facet tone (hull plating) */
   const pos=[], col=[], colHull=[];
@@ -1052,7 +953,7 @@ function buildShip(name, keepView) {
 
   /* accent lines trace the facet outlines — when chamfered, the bevel strips are
      excluded so each plate gets one crisp contour instead of a double line */
-  const eSrc = chamferOn ? shown.filter(f=>!f.plain) : shown;
+  const eSrc = shown;
   const ePos = [];
   for (const f of eSrc)
     for (let i=1; i<f.verts.length-1; i++)
@@ -1062,7 +963,7 @@ function buildShip(name, keepView) {
   edgeLines = new THREE.LineSegments(
     new THREE.EdgesGeometry(gE, 25),
     new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true,
-                                 opacity: chamferOn ? .3 : .4}));
+                                 opacity: .4}));
   edgeLines.visible = edgesOn;
   group.add(edgeLines);
 
@@ -1204,7 +1105,6 @@ function recolor() {
 btn('btnTex', on => { texOn=on;
   if (meshSolid) { meshSolid.material.map = on ? ATLAS : null;
     meshSolid.material.needsUpdate = true; } });
-btn('btnCham', on => { chamferOn=on; if (currentName) buildShip(currentName, true); });
 document.getElementById('btnPlate').onclick = () => {
   const n = PLATE_MESH.quad_all ? PLATE_MESH.quad_all.length : 1;
   const v = setPlate((plateVariant + 1) % n);
@@ -1213,7 +1113,7 @@ document.getElementById('btnPlate').onclick = () => {
 btn('btnSpace', on => { spaceOn=on; setSpace(on); });
 btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); });
 btn('btnParts', on => { partsOn=on;
-  for (const id of ['btnTex','btnCham']) document.getElementById(id).disabled = on;
+  document.getElementById('btnTex').disabled = on;
   if (currentName) buildShip(currentName, true); });
 
 /* ════════ loop ════════ */

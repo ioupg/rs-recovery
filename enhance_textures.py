@@ -222,6 +222,22 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
     return Image.fromarray(arr)
 
 
+def make_tileable(img: Image.Image) -> Image.Image:
+    """Force exact seamless tiling with a 4-tap torus blend: the image is
+    cross-faded with its half-period rolls using separable triangle weights.
+    Ghosting is invisible on low-contrast, near-featureless surfaces (which is
+    what the wing texture is) and the result wraps exactly."""
+    a = np.array(img.convert("RGB"), dtype=np.float64)
+    h, w = a.shape[:2]
+    wy = (1.0 - np.abs(np.arange(h) - (h - 1) / 2.0) / ((h - 1) / 2.0)).reshape(-1, 1, 1)
+    wx = (1.0 - np.abs(np.arange(w) - (w - 1) / 2.0) / ((w - 1) / 2.0)).reshape(1, -1, 1)
+    rx = np.roll(a, w // 2, axis=1)
+    ry = np.roll(a, h // 2, axis=0)
+    rxy = np.roll(rx, h // 2, axis=0)
+    num = a * wx * wy + rx * (1 - wx) * wy + ry * wx * (1 - wy) + rxy * (1 - wx) * (1 - wy)
+    return Image.fromarray(np.clip(num, 0, 255).astype(np.uint8))
+
+
 WING_SOLAR_PROMPT = (
     "A perfectly seamless tileable texture, top-down orthographic: a smooth "
     "dark blue-grey photovoltaic glass surface, nearly featureless — an "
@@ -444,7 +460,7 @@ def main() -> int:
         if not key:
             print("error: --gen-wing needs the AI key", file=sys.stderr)
             return 1
-        img = gemini_generate(WING_SOLAR_PROMPT, args.model, key)
+        img = make_tileable(gemini_generate(WING_SOLAR_PROMPT, args.model, key))
         img.save(OUT_DIR / "wing_solar.png")
         base = np.array(img.convert("RGB"))
         height = make_height(base)

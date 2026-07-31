@@ -21,7 +21,6 @@ import type { GameData, PlateMeshEntry } from '../data/loader';
 import type { BuildOptions, BuiltShip, PlateVariants } from './geometryTypes';
 import { occupancyOf, vertexAO, type Occupancy } from './ao';
 import { BLANK_UV, atlasUV } from './atlas';
-import { chamferFaces } from './chamfer';
 import {
   centroid, collectFacets, cross, cullFacets, dot, facetNormal, len, norm, orient, sub,
   type Facet, type V3,
@@ -35,7 +34,6 @@ const PLATE_MARGIN = 0.985;
 const FILL_INSET = 0.045;
 /* interior module cage, shrunk to clear the shell it sits inside */
 const MODULE_SCALE = 0.88;
-const CHAMFER = 0.07;
 const FILL_BRIGHT = 0.55, MODULE_BRIGHT = 0.78, PLATE_BRIGHT = 1.06;
 
 /** compartment → material slot; out-of-range compartments fall back to hull */
@@ -166,24 +164,69 @@ function addWings(
   return loops;
 }
 
+/* ── shell triangle → owning face classification, cached per shape ──
+      A shell rim face lies entirely in one of the shape's face planes; window
+      side-walls and other interior geometry match none. Knowing each
+      triangle's face lets the shells cull exactly what the facet cull culls —
+      without this, adjacent cubes stack coplanar rims at every shared
+      boundary and z-fight (the "cube edge" artifact). */
+const shellFaceClassCache = new Map<string, Int8Array[]>();
+
+function shellFaceClasses(shapeKey: string, sm: { sub: { pos: number[]; idx: number[] }[] },
+  shape: ShapeId): Int8Array[] {
+  let cached = shellFaceClassCache.get(shapeKey);
+  if (cached) return cached;
+  /* face planes in local authored space: normal (unnormalised) + offset */
+  const planes = FACES[shape].map(loop => {
+    const a = corner(loop[0]), b2 = corner(loop[1]), c = corner(loop[2]);
+    const e1: V3 = [b2[0] - a[0], b2[1] - a[1], b2[2] - a[2]];
+    const e2: V3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const n = cross(e1, e2);
+    return { n, d: dot(n, a as unknown as V3) };
+  });
+  cached = sm.sub.map(s => {
+    const cls = new Int8Array(s.idx.length / 3).fill(-1);
+    for (let t = 0; t < s.idx.length; t += 3) {
+      for (let fi = 0; fi < planes.length; fi++) {
+        const { n, d } = planes[fi];
+        let on = true;
+        for (const i of [s.idx[t], s.idx[t + 1], s.idx[t + 2]]) {
+          const v: V3 = [s.pos[i * 3], s.pos[i * 3 + 1], s.pos[i * 3 + 2]];
+          if (Math.abs(dot(n, v) - d) > 1e-3) { on = false; break; }
+        }
+        if (on) { cls[t / 3] = fi; break; }
+      }
+    }
+    return cls;
+  });
+  shellFaceClassCache.set(shapeKey, cached);
+  return cached;
+}
+
 /* ── mesh mode: the decoded part meshes in place of the procedural hull ──
       Each cube shape was matched to a decoded mesh by corner set, authored in
       the unit cell, so it rides the same rotate-about-centre transform the
-      facets use (viewer 800-831). ── */
+      facets use (viewer 800-831). Rim faces the facet cull dropped are
+      dropped here too. ── */
 function addShells(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
-  texOn: boolean,
+  texOn: boolean, keptFaces?: Set<string>,
 ): void {
   for (const cb of doc.cubes) {
     const sm = data.shapeMesh[String(cb.shape)];
     const M = ORIENTATIONS[cb.o];
     if (!sm || !M) continue;
+    const classes = shellFaceClasses(String(cb.shape), sm, cb.shape as ShapeId);
     const own = `${cb.x},${cb.y},${cb.z}`;
     const slot = slotOf(cb.comp);
-    for (const s of sm.sub) {
-      if (!s.nrm) continue;
+    sm.sub.forEach((s, si) => {
+      if (!s.nrm) return;
       const stex = texOn ? (s.tex?.[0] ?? null) : null;
-      for (const i of s.idx) {
+      const cls = classes[si];
+      for (let t = 0; t < s.idx.length; t += 3) {
+        const fi = cls[t / 3];
+        if (fi >= 0 && keptFaces && !keptFaces.has(`${cb.uid}:${fi}`)) continue;
+        for (const i of [s.idx[t], s.idx[t + 1], s.idx[t + 2]]) {
         const p = [s.pos[i * 3] - 0.5, s.pos[i * 3 + 1] - 0.5, s.pos[i * 3 + 2] - 0.5];
         const w: V3 = [
           M[0] * p[0] + M[1] * p[1] + M[2] * p[2] + 0.5 + cb.x,
@@ -198,8 +241,9 @@ function addShells(
         ];
         b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1,
           texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
+        }
       }
-    }
+    });
   }
 }
 
@@ -471,7 +515,8 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     /* with textures on, the archive's own UVs and per-submesh diffuse maps are
        emitted and triangles group by (slot, texture) instead of slot alone */
     const b = new SlotBuckets(opts.textures);
-    addShells(b, doc, data, occ, opts.ao, opts.textures);
+    const keptFaces = new Set(kept.map(f => `${f.uid}:${f.faceIndex}`));
+    addShells(b, doc, data, occ, opts.ao, opts.textures, keptFaces);
     addModules(b, doc, data, occ, opts.ao, opts.textures);
     addFiller(b, kept, occ, opts.ao);
     if (opts.plates) {
@@ -487,7 +532,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   }
 
   const plate = opts.mode === 'plate';
-  const shown = plate && opts.chamfer ? chamferFaces(kept, CHAMFER) : kept;
+  const shown = kept;
   const b = new SlotBuckets(plate);
 
   for (const f of shown) {

@@ -38,6 +38,9 @@ export interface Facet {
   verts: V3[];
   comp: number;
   shape: ShapeId;
+  /** owning cube + face index — lets shells cull the same faces facets cull */
+  uid?: number;
+  faceIndex?: number;
   /** centroid of the source solid: outward is away from it */
   sc?: V3;
   /** vertex-set identity — cull key and seed of the per-facet tone jitter */
@@ -73,7 +76,7 @@ export function collectFacets(cubes: readonly Cube[]): Facet[] {
       const plate = slot === 6 ? (cb.slots?.[6] ? cb.slots[6].p !== 0 : false) : undefined;
       faces.push({
         verts, comp: cb.comp, shape: cb.shape as ShapeId, sc, k: keyOf(verts),
-        plate, nonAxis: slot === 6,
+        plate, nonAxis: slot === 6, uid: cb.uid, faceIndex: fi,
       });
     });
   }
