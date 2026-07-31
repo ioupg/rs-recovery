@@ -90,14 +90,39 @@ rendered from the meshes is *a plausible dressing of exact structure*.
 
 ---
 
-## Where we stopped
+## Where we stopped — SOLVED (2026-07-31): per-face plates fully recovered
 
-The last thing discussed and **not done**: the viewer currently distinguishes only
-quad vs triangle plates. The exe's `plateType(shape, plateIndex)` table
-(`0x1db70b0`) gives five types, so `p2121` (wedge slopes) and `p222A`/`p222V`
-(cut corners) could get their own distinct meshes instead of reusing the quad and
-triangle. The *assignment* would then be recovered data; only the per-type mesh
-choice stays a choice.
+The cube record's slot region was re-derived by fleet-wide correlation with
+face exteriority (the old 6×16 uniform read was partly wrong):
+
+- six 16-byte slots at `40+16i` in **CUBE-LOCAL axis order [+x,−x,+y,−y,+z,−z]**
+  (local beat world 83% vs 56% on rotated cubes): `{u8 plateOrientation;
+  garbage; u8 noPlate @+8; garbage; u32 flag @+12}` — plate present ⇔ the
+  `noPlate` byte is 0;
+- a compact 7th slot in the tail for the shape's **non-axis face** (k7 cut /
+  k6 slope / k4 diagonal): orientation `@136`, present ⇔ `@144 == 1`
+  (note the opposite polarity); `counter` sits unaligned at `@129`.
+
+All 12 006 slot orientations are valid group members. **324 exterior faces
+across the fleet are genuinely bare** — real decoration state (six of them k7
+cut faces). 316 slots keep a plate on faces later covered by a neighbour
+(stale, culled at render); slots for faces a partial shape doesn't have read
+as covered.
+
+The exe's `PLATE_TYPE` table `@0x1db70b0` decodes as `[4][7]` u32 indices into
+the name table `@0x1db7218` (`p1111 p121 p2121 p222A p222V`): k8 = 6×p1111;
+k7 = p222V + 3 quads + 3 tris; k6 = p2121 + 2 quads + 2 tris; k4 = p222A +
+3 tris — matching each shape's face inventory exactly, and settling A/V:
+**p222A is k4's diagonal, p222V is k7's cut**. No dedicated p2121/p222 meshes
+exist in the archive (the catalogue census re-run found none; the notes-04
+"6 equilateral" were module cages) — the affine face frame shears the
+quad/tri representatives onto those faces, as the engine's own defaults did.
+
+The constructor renders plates **per face from the recovered slots**, offers
+the mesh choice per plate *type* (p1111/p2121 pickers), and edits presence
+per face with the plate tool (6) — symmetry-aware, undoable, round-tripping
+through export. `parse_rsconstruction.py` emits the corrected 7-slot format
+(`{o, p, f}`; `f` is the still-unexplained per-slot flag, preserved).
 
 ### Other open threads
 
