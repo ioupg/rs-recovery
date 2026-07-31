@@ -28,3 +28,6 @@ editor/public/textures/
 
 # SharedTec engine source drop (analysis working copy; archive to source/ if wanted)
 tmp/
+
+# genAI API key for enhance_textures.py --ai (never commit)
+.gemini_key
