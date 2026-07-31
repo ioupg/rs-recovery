@@ -54,6 +54,17 @@ AI_PROMPT = (
 
 HEIGHT_BLUR_SIGMA = 1.2
 NORMAL_STRENGTH = 1.6
+
+# Relief factor per texture. Luminance→height is wrong for PAINT: high-contrast
+# painted stripes and palette swatches have no 3D at their colour boundaries,
+# so embossing them makes the bump layer visibly fight the diffuse. Structural
+# surfaces (rivets, gratings, panel seams) keep full relief.
+PER_TEXTURE_RELIEF = {
+    "bordersDusty.bmp": 0.15,     # painted hazard stripes
+    "system_colors.png": 0.0,     # flat palette — no relief at all
+    "MozaicGlowy.bmp": 0.5,       # glossy mosaic — mild
+    "wing_solar": 0.4,            # glass cells — gentle
+}
 ROUGHNESS_BLUR_SIGMA = 2.0
 ROUGHNESS_MIN = 0.55
 ROUGHNESS_MAX = 1.0
@@ -202,14 +213,13 @@ def crop_central_quarter(img: Image.Image, target_size: tuple[int, int]) -> Imag
 
 
 WING_SOLAR_PROMPT = (
-    "A perfectly seamless tileable texture, top-down orthographic: a very "
-    "fine-grained dense grid of small dark blue-black photovoltaic solar "
-    "cells — at least 24 by 24 tiny cells across the image — separated by "
-    "hairline silver busbar lines, grouped into larger panel sections by "
-    "slightly thicker seams every 8 cells. Subtle glass micro-reflections, "
-    "slight cell-to-cell hue variation, spacecraft solar array style, worn "
-    "industrial look. Flat lighting, no vignette, no border, no text, edges "
-    "must tile seamlessly. 1024x1024."
+    "A perfectly seamless tileable texture, top-down orthographic: a smooth "
+    "dark blue-grey photovoltaic glass surface, nearly featureless — an "
+    "extremely subtle fine micro-grid of hairline cell lines, barely visible, "
+    "low contrast, with a soft satin sheen and faint cell-to-cell tonal "
+    "variation. No bold lines, no thick seams, no distinct details, no "
+    "reflridge highlights. Flat even lighting, no vignette, no border, no "
+    "text, edges must tile seamlessly. 1024x1024."
 )
 
 
@@ -336,8 +346,9 @@ def process_one(src_path: Path, use_ai: bool, model: str, api_key: str | None,
     base_arr = np.array(base_img.convert("RGB"))
     height = make_height(base_arr)
     dx, dy = sobel_wrap(height)
-    normal_rgb = make_normal_map(dx, dy, NORMAL_STRENGTH)
-    rough_gray = make_roughness_map(dx, dy)
+    relief = PER_TEXTURE_RELIEF.get(archive_name, 1.0)
+    normal_rgb = make_normal_map(dx, dy, NORMAL_STRENGTH * relief)
+    rough_gray = make_roughness_map(dx * relief, dy * relief)
 
     if diffuse_img.size != orig_size:
         normal_up = Image.fromarray(normal_rgb, mode="RGB").resize(diffuse_img.size, Image.LANCZOS)
@@ -425,8 +436,9 @@ def main() -> int:
         base = np.array(img.convert("RGB"))
         height = make_height(base)
         dx, dy = sobel_wrap(height)
-        Image.fromarray(make_normal_map(dx, dy, NORMAL_STRENGTH), mode="RGB").save(OUT_DIR / "wing_solar_n.png")
-        Image.fromarray(make_roughness_map(dx, dy), mode="L").save(OUT_DIR / "wing_solar_r.png")
+        k = PER_TEXTURE_RELIEF.get("wing_solar", 1.0)
+        Image.fromarray(make_normal_map(dx, dy, NORMAL_STRENGTH * k), mode="RGB").save(OUT_DIR / "wing_solar_n.png")
+        Image.fromarray(make_roughness_map(dx * k, dy * k), mode="L").save(OUT_DIR / "wing_solar_r.png")
         manifest["wing_solar"] = {"d": True, "n": True, "r": True}
         print(f"wing_solar generated: {img.size[0]}x{img.size[1]}")
     else:
