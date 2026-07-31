@@ -5,6 +5,7 @@
 *.png            binary
 *.zip            binary
 *.jpg            binary
+*.glb            binary
 
 viewer/three.min.js linguist-vendored
 viewer/ships.js     linguist-generated
