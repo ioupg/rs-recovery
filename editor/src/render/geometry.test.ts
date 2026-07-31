@@ -27,6 +27,7 @@ const data: GameData = {
   shapeMesh: shapes.SHAPE_MESH as GameData['shapeMesh'],
   plateMesh: shapes.PLATE_MESH as GameData['plateMesh'],
   moduleMesh: shapes.MODULE_MESH as GameData['moduleMesh'],
+  wingMesh: (shapes.WING_MESH ?? []) as GameData['wingMesh'],
   slotDefaults: [],
 };
 

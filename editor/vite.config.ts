@@ -32,6 +32,7 @@ function rsDataPlugin(): Plugin {
     write('shape-mesh.json', shapes.SHAPE_MESH);
     write('plate-mesh.json', shapes.PLATE_MESH);
     write('module-mesh.json', shapes.MODULE_MESH);
+    write('wing-mesh.json', shapes.WING_MESH ?? []);
     /* decoded 2014 textures (decode_textures.py → recovered/textures) */
     const texSrc = resolve(root, '../recovered/textures');
     const texDst = resolve(root, 'public/textures');

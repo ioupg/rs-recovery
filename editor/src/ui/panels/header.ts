@@ -73,26 +73,20 @@ export function buildHeader(host: HTMLElement, ctx: UiContext): void {
   /* per-type decoration mesh pickers: the plate TYPE per face is recovered
      data; only which archive mesh dresses each type is a choice */
   const quadN = ctx.data.plateMesh.quad_all.length;
-  const plateQuadBtn = button('', { title: 'вариант плиты p1111 (осевые квадраты)' });
-  const plateSlopeBtn = button('', { title: 'вариант плиты p2121 (скосы)' });
+  const plateQuadBtn = button('', { title: 'вариант плиты p1111 (1 = подлинный =default)' });
   const refreshPlateBtn = () => {
     const v = ctx.state.render.plateVariants;
     plateQuadBtn.textContent = quadN ? `p1111 ${v.quad + 1}/${quadN}` : 'p1111 —';
-    plateSlopeBtn.textContent = quadN ? `p2121 ${v.slope + 1}/${quadN}` : 'p2121 —';
-    const dim = ctx.state.render.mode !== 'mesh';
-    plateQuadBtn.classList.toggle('irrelevant', dim);
-    plateSlopeBtn.classList.toggle('irrelevant', dim);
+    plateQuadBtn.classList.toggle('irrelevant', ctx.state.render.mode !== 'mesh');
   };
-  const cycle = (key: 'quad' | 'slope') => () => {
+  plateQuadBtn.onclick = () => {
     if (!quadN) return;
     const v = ctx.state.render.plateVariants;
     ctx.state.update({ render: { ...ctx.state.render,
-      plateVariants: { ...v, [key]: (v[key] + 1) % quadN } } });
+      plateVariants: { ...v, quad: (v.quad + 1) % quadN } } });
   };
-  plateQuadBtn.onclick = cycle('quad');
-  plateSlopeBtn.onclick = cycle('slope');
   refreshPlateBtn();
-  toggleGroup.append(plateQuadBtn, plateSlopeBtn);
+  toggleGroup.append(plateQuadBtn);
   host.append(toggleGroup, divider());
 
   /* ── symmetry ── */

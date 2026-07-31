@@ -205,7 +205,9 @@ function addModules(
   if (!N) return;
   for (const cb of doc.cubes) {
     if (cb.comp === HULL_COMP) continue;                 // plain hull carries none
-    const mm = data.moduleMesh[((cb.comp % N) + N) % N];
+    /* index = compartment id: cages are name-bound to systems since the
+       resource-id crack (m1*power=comp0 … m1*cargo=comp9) */
+    const mm = data.moduleMesh[cb.comp];
     const M = ORIENTATIONS[cb.o];
     if (!mm || !M) continue;
     const own = `${cb.x},${cb.y},${cb.z}`;
@@ -269,18 +271,25 @@ function addFiller(
 const pickVariant = <T>(pool: readonly T[], i: number): T | undefined =>
   pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
 
-/** Axis plates, mounted the engine's own way: the plate is authored on the
-    cell's z=0 face (relief to −z, outward) and instanced by rotating about the
-    cell centre by ORIENTATIONS[slot.o] — the face it decorates is
-    R(slot.o)·(0,0,−1) in world (fleet-verified). No mirroring, no rewinding:
-    rotations preserve handedness and the decoder already flipped to CCW. */
-function emitMountedPlate(
+const matMul9 = (a: readonly number[], b2: readonly number[]): number[] => {
+  const r = new Array<number>(9);
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      r[i * 3 + j] = a[i * 3] * b2[j] + a[i * 3 + 1] * b2[3 + j] + a[i * 3 + 2] * b2[6 + j];
+  return r;
+};
+
+/** Parts are authored in the unit cell and instanced by rotating about the
+    cell centre (the engine's own mounting — no mirroring, no rewinding:
+    rotations preserve handedness and the decoder already flipped to CCW).
+    Axis plates: M = R(slot.o), face = M·(0,0,−1) in world. Cell-authored
+    parts (slope/cut plates, wing skins): M composes cube/element rotations. */
+function emitMountedPart(
   sink: (p: V3, n: V3, uv?: [number, number], tex?: string | null) => void,
-  cell: V3, slotO: number,
+  cell: V3, M: readonly number[] | undefined,
   pm: { sub: { pos: number[]; nrm?: number[]; idx: number[]; uv?: number[]; tex?: string[] }[] },
   windowK: number, texOn: boolean,
 ): void {
-  const M = ORIENTATIONS[slotO];
   if (!M) return;
   for (const s of pm.sub) {
     if (!s.nrm) continue;
@@ -345,8 +354,8 @@ export function mountedPlatePositions(
   const found = plateMeshFor(cube, slotO, data, variants);
   if (!found) return null;
   const pos: number[] = [];
-  emitMountedPlate((w) => { pos.push(w[0], w[1], w[2]); },
-    [cube.x, cube.y, cube.z], slotO, found.pm, found.windowK, false);
+  emitMountedPart((w) => { pos.push(w[0], w[1], w[2]); },
+    [cube.x, cube.y, cube.z], ORIENTATIONS[slotO], found.pm, found.windowK, false);
   return pos.length ? pos : null;
 }
 
@@ -365,79 +374,62 @@ function addAxisPlates(
       if (!sl.p) continue;
       const found = plateMeshFor(cb, sl.o, data, variants, cubeAt);
       if (!found) continue;
-      emitMountedPlate((w, n, uv, tex) => {
+      emitMountedPart((w, n, uv, tex) => {
         b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
-      }, [cb.x, cb.y, cb.z], sl.o, found.pm, found.windowK, texOn);
+      }, [cb.x, cb.y, cb.z], ORIENTATIONS[sl.o], found.pm, found.windowK, texOn);
     }
   }
 }
 
-/* ── non-axis faces (k7 cut / k6 slope / k4 diagonal, slot 6): the archive has
-      no meshes authored on those planes, so the stand-ins map through the
-      affine frame the facet defines, exactly as the reference viewer validated
-      (mirrored mounting, rewound triangles, right-handed frame). ── */
+/* ── non-axis faces (k7 cut / k6 slope / k4 diagonal, slot 6): the named
+      '=default' plates (p2121/p222A/p222V, identified via the cracked resource
+      CRC) are authored IN the unit cell on their slanted planes, so they mount
+      like shells: rotated by R(cube.o)·R(slot6.o) about the cell centre.
+      slot6.o is 0 on every fleet k6/k4 and varies on k7 — a spin about the cut
+      diagonal, composed in the cube's local frame. ── */
+const NON_AXIS_TYPE: Record<number, 'p2121' | 'p222A' | 'p222V'> = {
+  2: 'p2121', 3: 'p222A', 1: 'p222V',
+};
+
 function addNonAxisPlates(
-  b: SlotBuckets, kept: readonly Facet[], data: GameData, occ: Occupancy,
-  aoOn: boolean, variants: PlateVariants, texOn: boolean,
+  b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy,
+  aoOn: boolean, texOn: boolean,
 ): void {
-  const quads = data.plateMesh.quad_all ?? [];
-  const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
-  for (const f of kept) {
-    if (!f.nonAxis || f.plate === false) continue;
-    /* slope p2121 (quad pool, sheared) · cut/diagonal p222A,V (tri pool) */
-    const pm = f.verts.length === 4
-      ? pickVariant(quads, variants.slope)
-      : pickVariant(tris, variants.eq);
-    if (!pm || pm.outline.length < 3) continue;
-    const nw = facetNormal(f.verts);
-    const cen = centroid(f.verts);
-    const n = orient(nw, cen, f, occ);
-    /* the loop may wind either way; the mirror mounting needs a right-handed
-       frame, or it mirrors the plate a second time in-plane and the winding
-       comes out inverted on exactly those facets. Walk the loop backwards when
-       its winding normal opposes the outward one. */
-    const fv = dot(nw, n) < 0 ? f.verts.slice().reverse() : f.verts;
-    const v0 = fv[0], E1 = sub(fv[1], v0), E2 = sub(fv[2], v0);
-    /* solve the plate's local outline onto this facet */
-    const [a0, a1, a2] = pm.outline;
-    /* shrink the plate about its own centre: at full size it covers the whole
-       face and hides the frame it is supposed to be bolted onto */
-    const oc = pm.outline.reduce((s, p) => [s[0] + p[0], s[1] + p[1]], [0, 0])
-                         .map(v => v / pm.outline.length);
-    const sm = data.shapeMesh[String(f.shape)];
-    const k = ((sm && sm.window) || 1) * PLATE_MARGIN;
-    const d1 = [a1[0] - a0[0], a1[1] - a0[1]], d2 = [a2[0] - a0[0], a2[1] - a0[1]];
-    const det = d1[0] * d2[1] - d1[1] * d2[0];
-    if (!det) continue;
-    const slot = slotOf(f.comp);
-    for (const s of pm.sub) {
-      if (!s.nrm) continue;
-      const stex = texOn ? (s.tex?.[0] ?? null) : null;
-      for (let t = 0; t < s.idx.length; t += 3)
-        for (const i of [s.idx[t], s.idx[t + 2], s.idx[t + 1]]) {
-          const lx = oc[0] + (s.pos[i * 3] - oc[0]) * k - a0[0],
-                ly = oc[1] + (s.pos[i * 3 + 1] - oc[1]) * k - a0[1],
-                lz = -s.pos[i * 3 + 2];
-          const t1 = (lx * d2[1] - ly * d2[0]) / det;
-          const t2 = (-lx * d1[1] + ly * d1[0]) / det;
-          const w: V3 = [
-            v0[0] + t1 * E1[0] + t2 * E2[0] + lz * n[0],
-            v0[1] + t1 * E1[1] + t2 * E2[1] + lz * n[1],
-            v0[2] + t1 * E1[2] + t2 * E2[2] + lz * n[2],
-          ];
-          const m1 = (s.nrm[i * 3] * d2[1] - s.nrm[i * 3 + 1] * d2[0]) / det;
-          const m2 = (-s.nrm[i * 3] * d1[1] + s.nrm[i * 3 + 1] * d1[0]) / det;
-          const nz = -s.nrm[i * 3 + 2];
-          const wn = norm([
-            m1 * E1[0] + m2 * E2[0] + nz * n[0],
-            m1 * E1[1] + m2 * E2[1] + nz * n[1],
-            m1 * E1[2] + m2 * E2[2] + nz * n[2],
-          ]);
-          b.vertex(slot, w, wn, (aoOn ? vertexAO(w, wn, occ, null) : 1) * PLATE_BRIGHT,
-            texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
-        }
-    }
+  const types = data.plateMesh.types;
+  if (!types) return;
+  for (const cb of doc.cubes) {
+    const typeName = NON_AXIS_TYPE[cb.shape];
+    if (!typeName || !cb.slots?.[6]?.p) continue;
+    const pm = types[typeName];
+    const Mc = ORIENTATIONS[cb.o], Ms = ORIENTATIONS[cb.slots[6].o];
+    if (!pm || !Mc || !Ms) continue;
+    const mslot = slotOf(cb.comp);
+    emitMountedPart((w, n, uv, tex) => {
+      b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
+    }, [cb.x, cb.y, cb.z], matMul9(Mc, Ms), pm, 1, texOn);
   }
+}
+
+/* ── wing skins: the named w*=default meshes, authored in the unit cell and
+      mounted by R(element.o) about the cell centre; w2121 has no mesh in the
+      archive and keeps the flat recovered polygon ── */
+function addWingSkins(
+  b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy,
+  aoOn: boolean, texOn: boolean,
+): Set<number> {
+  const skinned = new Set<number>();
+  const meshes = data.wingMesh;
+  if (!meshes) return skinned;
+  doc.wings.forEach((el, i) => {
+    const pm = meshes[el.kind];
+    const M = ORIENTATIONS[el.o];
+    if (!pm || !M) return;
+    emitMountedPart((w, n, uv, tex) => {
+      b.vertex('wing', w, n, aoOn ? vertexAO(w, n, occ, null) : 1, uv, tex ?? null);
+    }, [el.x, el.y, el.z], M, pm, 1, texOn);
+    skinned.add(i);
+  });
+  return skinned;
 }
 
 export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptions): BuiltShip {
@@ -454,9 +446,11 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     addFiller(b, kept, occ, opts.ao);
     if (opts.plates) {
       addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
-      addNonAxisPlates(b, kept, data, occ, opts.ao, opts.plateVariants, opts.textures);
+      addNonAxisPlates(b, doc, data, occ, opts.ao, opts.textures);
     }
-    addWings(b, doc, occ, opts.ao, opts.textures);
+    const skinned = addWingSkins(b, doc, data, occ, opts.ao, opts.textures);
+    addWings(b, { ...doc, wings: doc.wings.filter((_, i) => !skinned.has(i)) },
+      occ, opts.ao, opts.textures);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */
     return { geometry, groupSlots, groupTex, edges: geometry, edgesThreshold: 32 };

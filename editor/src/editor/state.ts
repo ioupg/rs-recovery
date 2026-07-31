@@ -27,7 +27,7 @@ export class EditorState {
   symmetry: SymmetrySettings = { on: false, planeX2: 0 };
   render: RenderSettings = {
     mode: 'box', chamfer: true, ao: true, textures: true, plates: true,
-    plateVariants: { quad: 0, slope: 0, tri: 0, eq: 0 }, edges: true, compColors: true,
+    plateVariants: { quad: 1, slope: 0, tri: 0, eq: 0 }, edges: true, compColors: true,
   };
   layout: ViewportLayout = 'single';
 

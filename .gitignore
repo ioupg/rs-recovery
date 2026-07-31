@@ -25,3 +25,6 @@ node_modules/
 editor/public/data/
 # editor: build output — committed only at deploy milestones via viewer/editor
 editor/public/textures/
+
+# SharedTec engine source drop (analysis working copy; archive to source/ if wanted)
+tmp/

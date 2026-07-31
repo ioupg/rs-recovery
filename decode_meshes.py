@@ -19,9 +19,47 @@ import math
 import os
 import struct
 import sys
+import zlib
 
 STRIDE = 32
 PARTS_DIR = 'compiled/meshes/RedStar/parts'
+
+# ── resource identity, cracked 2026-07-31 from the SharedTec engine source ──
+# Resource::ConstructID → id = CRC32(name), name = 'RedStar/parts/<file><node>=<variant>'
+# (Resources::ID::computeCRC, resourceManager/resource.cpp; standard zlib CRC32,
+# verified 14/14 on the texture ids). Ships never store a variant, so the 2014
+# editor always rendered the '=default' meshes: the authentic appearance.
+PART_NODES = ['p1111', 'p121', 'p2121', 'p222A', 'p222V', 'k8', 'k7', 'k6', 'k4',
+              'w1111', 'w121', 'w2121', 'w321', 'w222',
+              'm1*engine', 'm1*power', 'm1*gyroscope', 'm1*command', 'm1*habitable',
+              'm1*cargo', 'm1*weapon', 'm1*hangar', 'm1*slot', 'm1*tank']
+KNOWN_VARIANTS = ['default', 'grid']
+
+# compartment id → system module (semantic binding of the Russian compartment
+# vocabulary to the exe's m1* names; every pair is a direct cognate except the
+# residual мостик↔m1*cargo)
+COMP_SYSTEM = ['m1*power', 'm1*command', 'm1*habitable', 'm1*gyroscope', 'm1*tank',
+               'm1*weapon', 'm1*engine', 'm1*hangar', 'm1*slot', 'm1*cargo']
+
+WING_ORDER = ['w1111', 'w121', 'w2121', 'w321', 'w222']   # element kind 0..4
+
+
+def identify_parts(parts):
+    table = {}
+    for src in {p['src'] for p in parts}:
+        for node in PART_NODES:
+            for var in KNOWN_VARIANTS:
+                c = zlib.crc32(f'RedStar/parts/{src}{node}={var}'.encode()) & 0xFFFFFFFF
+                table[str(c)] = (node, var)
+    n = 0
+    for p in parts:
+        hit = table.get(p['rid'])
+        if hit:
+            p['part'], p['variant'] = hit
+            n += 1
+    print(f'identified {n}/{len(parts)} meshes by name '
+          f'(CRC32 of RedStar/parts/<src><node>=<variant>)')
+    return {(p['part'], p['variant']): p for p in parts if 'part' in p}
 
 
 def _unit(v, tol=.03):
@@ -270,32 +308,17 @@ def outline(part):
     return h, abs(a)/2
 
 
-def pick_module_meshes(parts):
-    """Interior module cages.
-
-    Ten module names live in the exe (m1*engine, m1*power, m1*gyroscope,
-    m1*command, m1*habitable, m1*cargo, m1*weapon, m1*hangar, m1*slot, m1*tank)
-    and the archive holds a matching family of full-cell open cages textured with
-    system_colors.png — a palette, which is how the engine colour-codes a system.
-    These are the machinery that shows through the hull shell's window.
-
-    Which cage belongs to which system is NOT recoverable (the resource id is not
-    a hash of the name), so they are handed out in a stable order by resource id.
-    """
-    cands = []
-    for p in parts:
-        zs = [c for s in p['sub'] for c in s['pos'][2::3]]
-        if max(zs) - min(zs) < .6:
-            continue
-        if 'system_colors.png' not in p['tex']:
-            continue
-        if corner_set(p) != SHAPE_CORNERS[0]:
-            continue
-        cands.append(p)
-    cands.sort(key=lambda p: int(p['rid']))
-    print(f"  {len(cands)} cages: " +
-          ', '.join(f"{p['rid']}({p['tris']}t)" for p in cands))
-    return cands
+def pick_module_meshes(parts, byname):
+    """Interior module cages, identified BY NAME (id = CRC32 of the resource
+    name — cracked from the engine source): the array is aligned so index i is
+    the cage of compartment i. All ten m1* '=default' cages exist."""
+    out = []
+    for comp, name in enumerate(COMP_SYSTEM):
+        p = byname.get((name, 'default'))
+        out.append(p)
+        print(f"  comp {comp} {name:15} -> "
+              + (f"{p['rid']} ({p['tris']}t)" if p else 'MISSING'))
+    return out
 
 
 def pick_plate_meshes(parts, want_tris=(210, 14)):
@@ -319,20 +342,56 @@ def pick_plate_meshes(parts, want_tris=(210, 14)):
                 cands.append((p, h))
         if not cands:
             continue
-        cands.sort(key=lambda c: c[0]['tris'])
+        # named '=default' first (the mesh the 2014 editor actually rendered),
+        # remaining archive variants after it by triangle count
+        node = 'p1111' if key == 'quad' else 'p121'
+        cands.sort(key=lambda c: (c[0].get('part') != node
+                                  or c[0].get('variant') != 'default', c[0]['tris']))
         out[key + '_all'] = [{'rid': c[0]['rid'], 'tris': c[0]['tris'],
+                              'part': c[0].get('part'), 'variant': c[0].get('variant'),
                               'outline': [[round(x,4), round(y,4)] for x,y in c[1]],
                               'sub': [{'pos': t['pos'], 'nrm': t['nrm'], 'idx': t['idx'],
                                        'uv': t['uv'], 'tex': t['tex']}
                                       for t in c[0]['sub']]} for c in cands]
-        p, h = min(cands, key=lambda c: abs(c[0]['tris'] - target))
+        p, h = cands[0]
         out[key] = {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
                     'outline': [[round(x, 4), round(y, 4)] for x, y in h],
                     'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
                              'uv': s['uv'], 'tex': s['tex']}
                             for s in p['sub']]}
-        print(f"  plate {key}: {len(cands)} candidate(s), using {p['rid']} "
-              f"({p['tris']} tris, outline {h})")
+        print(f"  plate {key}: {len(cands)} candidate(s), default {p['rid']} "
+              f"({p.get('part')}={p.get('variant')}, {p['tris']} tris)")
+    return out
+
+
+def pick_named_plate_types(byname):
+    """The five plate types by their '=default' names. p2121/p222A/p222V are
+    authored IN the unit cell on their slanted planes (not thin z=0 slabs), so
+    they mount by rotation about the cell centre exactly like everything else."""
+    types = {}
+    for node in ('p1111', 'p121', 'p2121', 'p222A', 'p222V'):
+        p = byname.get((node, 'default'))
+        if not p:
+            print(f'  plate type {node}: MISSING')
+            continue
+        types[node] = {'rid': p['rid'], 'tris': p['tris'], 'name': node,
+                       'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
+                                'uv': s['uv'], 'tex': s['tex']} for s in p['sub']]}
+        print(f"  plate type {node}: {p['rid']} ({p['tris']} tris)")
+    return types
+
+
+def pick_wing_meshes(byname):
+    """Wing skin meshes by name, kind order w1111/w121/w2121/w321/w222."""
+    out = []
+    for kind, node in enumerate(WING_ORDER):
+        p = byname.get((node, 'default'))
+        out.append({'rid': p['rid'], 'tris': p['tris'], 'name': node,
+                    'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
+                             'uv': s['uv'], 'tex': s['tex']} for s in p['sub']]}
+                   if p else None)
+        print(f"  wing {kind} {node}: " + (f"{p['rid']} ({p['tris']}t)" if p else
+              'no mesh in archive (flat polygon fallback)'))
     return out
 
 
@@ -372,6 +431,9 @@ def main():
         print(f"  skipped {n} ({sz} B): no 32-byte submeshes "
               f"(later export, different vertex format / uninitialised normals)")
 
+    print("identifying meshes by resource name:")
+    byname = identify_parts(parts)
+
     os.makedirs(os.path.join(base, 'recovered'), exist_ok=True)
     with open(os.path.join(base, 'recovered', 'parts.json'), 'w') as f:
         json.dump(parts, f, separators=(',', ':'))
@@ -385,27 +447,37 @@ def main():
 
     print("matching cube shapes to part meshes by corner set:")
     shapes = pick_shape_meshes(parts)
+    for k, p in shapes.items():
+        expect = SHAPE_CODE[k]
+        got = p.get('part')
+        mark = 'name-confirmed' if got == expect else f'NAME MISMATCH ({got})'
+        print(f'  shape {k} {expect}: {mark}')
     slim = {str(k): {'rid': p['rid'], 'tris': p['tris'], 'tex': p['tex'],
                      'code': SHAPE_CODE[k], 'window': p.get('window', 1.0),
                      'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
                               'uv': s['uv'], 'tex': s['tex']}
                              for s in p['sub']]}
             for k, p in shapes.items()}
-    print("picking interior module cages:")
-    modules = pick_module_meshes(parts)
+    print("module cages by system name:")
+    modules = pick_module_meshes(parts, byname)
     print("picking decoration plates:")
     plates = pick_plate_meshes(parts)
+    plates['types'] = pick_named_plate_types(byname)
+    print("wing skin meshes by name:")
+    wings = pick_wing_meshes(byname)
     with open(os.path.join(base, 'viewer', 'shapes.js'), 'w') as f:
         f.write('const SHAPE_MESH = ')
         json.dump(slim, f, separators=(',', ':'))
         f.write(';\nconst PLATE_MESH = ')
         json.dump(plates, f, separators=(',', ':'))
         f.write(';\nconst MODULE_MESH = ')
-        json.dump([{'rid': p['rid'], 'tris': p['tris'],
+        json.dump([{'rid': p['rid'], 'tris': p['tris'], 'name': p.get('part'),
                     'sub': [{'pos': s['pos'], 'nrm': s['nrm'], 'idx': s['idx'],
                              'uv': s['uv'], 'tex': s['tex']}
-                            for s in p['sub']]} for p in modules],
+                            for s in p['sub']]} if p else None for p in modules],
                   f, separators=(',', ':'))
+        f.write(';\nconst WING_MESH = ')
+        json.dump(wings, f, separators=(',', ':'))
         f.write(';\n')
     kb = os.path.getsize(os.path.join(base, 'viewer', 'shapes.js')) // 1024
     print(f"wrote viewer/shapes.js ({kb} KB) for {len(slim)}/4 shapes")

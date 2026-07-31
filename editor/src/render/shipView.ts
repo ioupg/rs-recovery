@@ -58,7 +58,7 @@ export class ShipView {
   private doc: ShipDoc | null = null;
   private options: RenderSettings = {
     mode: 'box', chamfer: true, ao: true, textures: true, plates: true,
-    plateVariants: { quad: 0, slope: 0, tri: 0, eq: 0 },
+    plateVariants: { quad: 1, slope: 0, tri: 0, eq: 0 },
     edges: true, compColors: true,
   };
 
