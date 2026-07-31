@@ -739,7 +739,7 @@ let compColorOn=true, edgesOn=true, texOn=true, chamferOn=true, aoOn=true, parts
 let spaceOn=false, bloomOn=false;
 /* which decoration plate to use — the archive has 11 square candidates and the
    engine's choice is not recoverable, so it is exposed rather than hard-coded */
-let plateVariant = 8;
+let plateVariant = 5;
 function setPlate(i) {
   plateVariant = i;
   const v = PLATE_MESH.quad_all[i % PLATE_MESH.quad_all.length];

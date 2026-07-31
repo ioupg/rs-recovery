@@ -42,7 +42,7 @@ function docOf(name: string): ShipDoc {
 
 const opts = (over: Partial<BuildOptions>): BuildOptions => ({
   mode: 'box', chamfer: false, ao: true, textures: false,
-  plateVariants: { quad: 8, slope: 8, tri: 0, eq: 0 }, ...over,
+  plateVariants: { quad: 5, slope: 5, tri: 0, eq: 0 }, ...over,
 });
 
 const doc = docOf('m12-centurion');       // 13 cubes, 9 compartments, no wings
