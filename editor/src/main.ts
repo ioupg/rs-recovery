@@ -5,7 +5,7 @@
 import { loadGameData } from './data/loader';
 import { ShipModel } from './core/model';
 import { History } from './core/history';
-import { buildDefaultMaterials, MaterialStore } from './core/materials';
+import { buildDefaultMaterials, MaterialStore, SurfaceStore } from './core/materials';
 import { exportShipJson, importShip, importShipJson } from './core/io';
 import { validate } from './core/validation';
 import type { ShipDoc } from './core/types';
@@ -46,6 +46,7 @@ async function init(): Promise<void> {
   const model = new ShipModel(emptyDoc());
   const history = new History(model);
   const materials = new MaterialStore(buildDefaultMaterials(data.systems.all()));
+  const surfaces = new SurfaceStore();
 
   /* forward references filled after the scene exists */
   let view: ShipView;
@@ -56,6 +57,7 @@ async function init(): Promise<void> {
   const loadDoc = (doc: ShipDoc): void => {
     model.load(doc);
     materials.load(doc.materials);
+    surfaces.load(doc.surfaces);
     history.clear();
     state.select([]);
     actions.fitView();
@@ -73,7 +75,7 @@ async function init(): Promise<void> {
         .catch(e => refs.setStatus(`import failed: ${String(e)}`));
     },
     exportJson: () => {
-      const doc: ShipDoc = { ...model.doc, materials: materials.diff() };
+      const doc: ShipDoc = { ...model.doc, materials: materials.diff(), surfaces: surfaces.diff() };
       download(`${model.doc.meta.name}.json`,
         JSON.stringify(exportShipJson(doc, data.slotDefaults), null, 1), 'application/json');
     },
@@ -92,7 +94,7 @@ async function init(): Promise<void> {
     deleteSelection: () => controller.deleteSelection(),
   };
 
-  const ctx: UiContext = { state, history, materials, model, data, actions };
+  const ctx: UiContext = { state, history, materials, surfaces, model, data, actions };
   const refs = buildUi(root, ctx);
 
   const canvas = document.createElement('canvas');
@@ -102,7 +104,7 @@ async function init(): Promise<void> {
   const sceneCtx = createScene(canvas);
   fitShadow = b => sceneCtx.fitShadow(b as { min: [number, number, number]; max: [number, number, number] });
   viewports = new Viewports(refs.stage, sceneCtx.renderer);
-  const cache = new MaterialCache(materials);
+  const cache = new MaterialCache(materials, surfaces);
   view = new ShipView(sceneCtx, cache, data, uid => model.byUid(uid));
   view.setDoc(model.doc);
   view.setOptions(state.render);

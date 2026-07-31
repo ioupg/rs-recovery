@@ -186,31 +186,52 @@ export function buildToolPanel(host: HTMLElement, ctx: UiContext): { preview: HT
     p.append(legend([toolDef('systems').hint, GLOBAL_KEYS]));
   }
 
-  /* ── plate ── */
+  /* ── plate: visual mesh picker from the registry ── */
   {
     const p = page('plate');
-    const s = h('section', 'panel-section');
-    s.append(h('h3', undefined, 'plate mesh'));
-    const row = h('div', 'orient-stepper');
-    const prev = button('◀');
-    const val = h('span', 'orient-val');
-    const next = button('▶');
-    const quads = ctx.data.plateMesh.quad_all;
-    const cycle = (dir: 1 | -1) => {
-      if (!quads.length) return;
-      const v = ctx.state.render.plateVariants;
-      ctx.state.update({ render: { ...ctx.state.render,
-        plateVariants: { ...v, quad: (v.quad + dir + quads.length) % quads.length } } });
+    const plateBtns: { b: HTMLButtonElement; id: string | null }[] = [];
+    const plateColor = '#9a8a68';
+    const mkCard = (host: HTMLElement, id: string | null, name: string, thumb: string, title: string): void => {
+      const b = h('button', 'item-btn');
+      const img = document.createElement('img');
+      img.src = thumb;
+      img.alt = name;
+      b.title = title;
+      b.append(img, h('span', 'item-name', name));
+      b.onclick = () => ctx.state.update({ activePlate: id });
+      plateBtns.push({ b, id });
+      host.append(b);
     };
-    prev.onclick = () => cycle(-1);
-    next.onclick = () => cycle(1);
-    row.append(prev, val, next);
-    s.append(row);
-    p.append(s);
+
+    const quadSection = h('section', 'panel-section');
+    quadSection.append(h('h3', undefined, 'quad faces'));
+    const quadGrid = h('div', 'item-grid');
+    mkCard(quadGrid, null, 'default',
+      renderThumbnail({ kind: 'mesh', color: plateColor,
+        sub: ctx.data.plates.defaultFor('quad')?.mesh.sub ?? [] }),
+      'Face default (the flat panel)');
+    for (const def of ctx.data.plates.byFaceType('quad'))
+      mkCard(quadGrid, def.id, def.name,
+        renderThumbnail({ kind: 'mesh', color: plateColor, sub: def.mesh.sub }),
+        `${def.name} · ${def.tris} tris`);
+    quadSection.append(quadGrid);
+    p.append(quadSection);
+
+    const otherSection = h('section', 'panel-section');
+    otherSection.append(h('h3', undefined, 'other faces'));
+    const otherGrid = h('div', 'item-grid');
+    for (const t of ['tri', 'slope', 'diag', 'cut'] as const)
+      for (const def of ctx.data.plates.byFaceType(t))
+        mkCard(otherGrid, def.id, `${t} ${def.name}`,
+          renderThumbnail({ kind: 'mesh', color: plateColor, sub: def.mesh.sub }),
+          `${def.name} · ${def.tris} tris`);
+    otherSection.append(otherGrid);
+    p.append(otherSection);
+
     p.append(legend([toolDef('plate').hint, GLOBAL_KEYS]));
     refreshers.push(() => {
-      val.textContent = quads.length
-        ? `${ctx.state.render.plateVariants.quad + 1}/${quads.length}` : '—';
+      for (const { b, id } of plateBtns)
+        b.classList.toggle('active', ctx.state.activePlate === id);
     });
   }
 

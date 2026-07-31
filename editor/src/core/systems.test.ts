@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ARCHIVE_SYSTEMS, SystemsRegistry } from './systems';
-import { buildDefaultMaterials, compSlot, DEFAULT_MATERIALS, MaterialStore } from './materials';
+import { buildDefaultMaterials, compSlot, DEFAULT_MATERIALS, MaterialStore, SurfaceStore } from './materials';
 import { ShipModel } from './model';
 import { validate } from './validation';
 import { exportShipJson, importShipJson, type ExtraSpec } from './io';
@@ -77,6 +77,37 @@ describe('validation with an extended registry', () => {
   });
 });
 
+describe('SurfaceStore', () => {
+  it('defaults, patch, diff, reset', () => {
+    const s = new SurfaceStore();
+    expect(s.get('craftHull.bmp')).toEqual(
+      { normalScale: 0.5, roughnessK: 1, metalnessK: 1, envIntensity: 1, tint: true });
+    expect(s.get('system_colors.png').tint).toBe(false);   // engine palette stays full-colour
+    expect(s.diff()).toBeUndefined();
+    s.patch('craftHull.bmp', { normalScale: 1.2, roughnessK: 0.8 });
+    expect(s.diff()).toEqual({
+      'craftHull.bmp': { normalScale: 1.2, roughnessK: 0.8, metalnessK: 1, envIntensity: 1, tint: true },
+    });
+    s.reset('craftHull.bmp');
+    expect(s.diff()).toBeUndefined();
+  });
+
+  it('io: surfaces embed in export and reload', () => {
+    const s = new SurfaceStore();
+    s.patch('panel_tech_1.bmp', { envIntensity: 1.5 });
+    const doc = importShipJson({ cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }] }, 't');
+    doc.surfaces = s.diff();
+    const out = exportShipJson(doc, Array.from({ length: 24 }, () =>
+      Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })))) as {
+        surfaces?: Record<string, unknown> };
+    expect(out.surfaces).toEqual(doc.surfaces);
+    const back = importShipJson(out, 't');
+    const s2 = new SurfaceStore();
+    s2.load(back.surfaces);
+    expect(s2.get('panel_tech_1.bmp').envIntensity).toBe(1.5);
+  });
+});
+
 describe('extras round-trip', () => {
   const extras: ExtraSpec[] = [
     { kind: 'lattice', from: [0, 0, 0], to: [0, 0, 4], profile: 'square', chord: 0.08, brace: 0.04 },
@@ -86,16 +117,20 @@ describe('extras round-trip', () => {
 
   it('import assigns uids, export strips them, payload survives byte-exact', () => {
     const json = {
-      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }],
+      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8,
+        plateKinds: [null, 'p1111/3322175542', null, null, null, null, null] }],
       elements: [],
       extras,
     };
     const doc = importShipJson(json, 'test');
     expect(doc.extras?.length).toBe(3);
     expect(new Set(doc.extras!.map(e => e.uid)).size).toBe(3);
+    expect(doc.cubes[0].plateKinds?.[1]).toBe('p1111/3322175542');
     const out = exportShipJson(doc, Array.from({ length: 24 }, () =>
-      Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })))) as { extras?: unknown[] };
+      Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })))) as {
+        extras?: unknown[]; cubes: { plateKinds?: (string | null)[] }[] };
     expect(out.extras).toEqual(extras);
+    expect(out.cubes[0].plateKinds).toEqual([null, 'p1111/3322175542', null, null, null, null, null]);
   });
 
   it('extras validation catches malformed elements', () => {

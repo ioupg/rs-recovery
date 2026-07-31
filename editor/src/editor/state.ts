@@ -27,6 +27,8 @@ export class EditorState {
   activeOrient = 0;
   activeComp = 8;
   activeWingKind = 0;
+  /** plate registry id the Plates tool paints with; null = the face default */
+  activePlate: string | null = null;
   selection = new Set<number>();
   symmetry: SymmetrySettings = { on: false, planeX2: 0 };
   render: RenderSettings = {

@@ -258,3 +258,10 @@ main { flex: 1; display: flex; min-height: 0; }
 .preview-legend {
   margin-top: 4px; color: var(--faint); font-size: 10px; letter-spacing: .04em;
 }
+
+/* materials tab section headers */
+.mat-section {
+  font-size: 10px; color: var(--dim); letter-spacing: .2em;
+  text-transform: uppercase; font-weight: 400; margin: 12px 0 4px;
+}
+.mat-body input[type="checkbox"] { accent-color: var(--brass); }

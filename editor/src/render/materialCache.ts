@@ -8,10 +8,12 @@
 
 import * as THREE from 'three';
 import type { MaterialDef, MaterialSlot } from '../core/types';
-import type { MaterialStore } from '../core/materials';
+import type { MaterialStore, SurfaceStore } from '../core/materials';
 import type { Unsubscribe } from '../core/types';
 import { getAtlasTexture } from './atlas';
 import { getPartMaps } from './textureCache';
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 export interface MaterialVariant {
   /** procedural compartment atlas as .map (plate mode) */
@@ -24,14 +26,18 @@ export interface MaterialVariant {
 
 export class MaterialCache {
   private readonly store: MaterialStore;
+  private readonly surfaces: SurfaceStore | null;
   private readonly cache = new Map<string, { slot: MaterialSlot; v: MaterialVariant; m: THREE.MeshPhysicalMaterial }>();
-  private readonly unsubscribe: Unsubscribe;
+  private readonly unsubscribes: Unsubscribe[] = [];
 
-  constructor(store: MaterialStore) {
+  constructor(store: MaterialStore, surfaces?: SurfaceStore) {
     this.store = store;
-    this.unsubscribe = store.subscribe(kind => {
+    this.surfaces = surfaces ?? null;
+    this.unsubscribes.push(store.subscribe(kind => {
       if (kind === 'materials') this.refreshAll();
-    });
+    }));
+    if (surfaces)
+      this.unsubscribes.push(surfaces.subscribe(() => this.refreshAll()));
   }
 
   get(slot: MaterialSlot, v: MaterialVariant): THREE.MeshPhysicalMaterial {
@@ -46,10 +52,7 @@ export class MaterialCache {
       if (v.map) {
         const maps = getPartMaps(v.map);
         m.map = maps.map;
-        if (maps.normalMap) {
-          m.normalMap = maps.normalMap;
-          m.normalScale.set(0.5, 0.5);
-        }
+        if (maps.normalMap) m.normalMap = maps.normalMap;
         if (maps.roughnessMap) m.roughnessMap = maps.roughnessMap;
       } else if (v.textured) m.map = getAtlasTexture();
       this.apply(m, this.store.get(slot), v);
@@ -60,16 +63,21 @@ export class MaterialCache {
   }
 
   dispose(): void {
-    this.unsubscribe();
+    for (const u of this.unsubscribes) u();
     for (const e of this.cache.values()) e.m.dispose();
     this.cache.clear();
   }
 
   private apply(m: THREE.MeshPhysicalMaterial, def: MaterialDef, v: MaterialVariant): void {
-    if (v.untinted) m.color.set('#ffffff');
+    /* per-texture surface response rides on top of the slot material */
+    const surf = v.map && this.surfaces ? this.surfaces.get(v.map) : null;
+    const untinted = v.untinted || (surf ? !surf.tint : false);
+    if (untinted) m.color.set('#ffffff');
     else m.color.set(def.color);
-    m.roughness = def.roughness;
-    m.metalness = def.metalness;
+    m.roughness = clamp01(def.roughness * (surf?.roughnessK ?? 1));
+    m.metalness = clamp01(def.metalness * (surf?.metalnessK ?? 1));
+    m.envMapIntensity = surf?.envIntensity ?? 1;
+    if (m.normalMap) m.normalScale.set(surf?.normalScale ?? 0.5, surf?.normalScale ?? 0.5);
     m.emissive.set(def.emissive);
     m.emissiveIntensity = def.emissiveIntensity;
     m.clearcoat = def.clearcoat;

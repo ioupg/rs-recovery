@@ -90,7 +90,8 @@ export class EditorController {
       /* rotating or re-picking from the keyboard must update the ghost without
          waiting for the mouse to move */
       if (keys.some(k => k === 'activeOrient' || k === 'activeShape' || k === 'buildKind'
-          || k === 'activeComp' || k === 'activeWingKind' || k === 'symmetry'))
+          || k === 'activeComp' || k === 'activeWingKind' || k === 'activePlate'
+          || k === 'symmetry'))
         this.refreshHover();
     });
   }
@@ -193,8 +194,9 @@ export class EditorController {
         if (!res) { view.setPlateGhost(null, true); setStatus('no plate mounts here'); return; }
         const on = this.plateState(ent as Cube, res);
         const ghostO = on ? (ent as Cube).slots![res.idx].o : res.canonO;
+        const ghostKind = on ? (ent as Cube).plateKinds?.[res.idx] : state.activePlate;
         const pos = hit.tri.exit
-          ? mountedPlatePositions(ent as Cube, ghostO, this.o.data, state.render.plateVariants)
+          ? mountedPlatePositions(ent as Cube, ghostO, this.o.data, state.render.plateVariants, ghostKind)
           : null;
         view.setPlateGhost(pos, !on);
         setStatus(`face [${ent.x}, ${ent.y}, ${ent.z}] · plate ${on ? 'mounted — click removes · R spins' : 'absent — click mounts'}`);
@@ -442,7 +444,7 @@ export class EditorController {
   }
 
   private platePatch(cube: Cube, res: { idx: number; canonO: number },
-    change: { p?: number; o?: number }): { uid: number; patch: Partial<Cube> } {
+    change: { p?: number; o?: number; kind?: string | null }): { uid: number; patch: Partial<Cube> } {
     const slots: PlateSlot[] = cube.slots && cube.slots.length === 7
       ? cube.slots.map(s => ({ ...s }))
       : Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 }));
@@ -452,7 +454,15 @@ export class EditorController {
       p: change.p ?? cur.p,
       f: cur.f,
     };
-    return { uid: cube.uid, patch: { slots } };
+    const patch: Partial<Cube> = { slots };
+    if (change.kind !== undefined) {
+      const kinds: (string | null)[] = cube.plateKinds && cube.plateKinds.length === 7
+        ? [...cube.plateKinds]
+        : Array.from({ length: 7 }, () => null);
+      kinds[res.idx] = change.kind;
+      patch.plateKinds = kinds;
+    }
+    return { uid: cube.uid, patch };
   }
 
   /** the same face on the symmetry twin, as (cube, resolution) pairs */
@@ -475,19 +485,34 @@ export class EditorController {
     return out;
   }
 
+  /** click: bare face → mount the active plate mesh; mounted with a different
+      mesh → swap the mesh in place; mounted with the same mesh → remove */
   private doPlate(e: PointerEvent): void {
     const hit = this.pickAt(e.clientX, e.clientY);
     if (!hit || hit.tri.kind !== 'cube') return;
-    const { model, history, setStatus } = this.o;
+    const { state, model, history, setStatus } = this.o;
     const cube = model.byUid(hit.tri.uid);
     if (!cube || !('shape' in cube)) return;
     const targets = this.plateTargets(cube as Cube, hit.tri.exit);
     if (!targets.length) return;
-    const on = this.plateState(cube as Cube, targets[0].res) ? 0 : 1;
-    const entries = targets.map(t => this.platePatch(t.cube, t.res, { p: on }));
+    const active = state.activePlate;
+    const mounted = this.plateState(cube as Cube, targets[0].res);
+    const curKind = (cube as Cube).plateKinds?.[targets[0].res.idx] ?? null;
+    let entries: { uid: number; patch: Partial<Cube> }[];
+    let status: string;
+    if (!mounted) {
+      entries = targets.map(t => this.platePatch(t.cube, t.res, { p: 1, kind: active }));
+      status = 'plate mounted';
+    } else if (curKind !== active) {
+      entries = targets.map(t => this.platePatch(t.cube, t.res, { kind: active }));
+      status = 'plate mesh swapped';
+    } else {
+      entries = targets.map(t => this.platePatch(t.cube, t.res, { p: 0, kind: null }));
+      status = 'plate removed';
+    }
     history.run(new PatchCubes(entries));
     this.refreshHover();
-    setStatus(`plate ${on ? 'mounted' : 'removed'}`);
+    setStatus(status);
   }
 
   /** R with the plate tool: spin the hovered plate 90° about its face normal —
@@ -591,11 +616,9 @@ export class EditorController {
       return;
     }
     if (state.tool === 'plate') {
-      const n = data.plateMesh.quad_all.length;
-      if (!n) return;
-      const v = state.render.plateVariants;
-      state.update({ render: { ...state.render,
-        plateVariants: { ...v, quad: (v.quad + dir + n) % n } } });
+      const ids: (string | null)[] = [null, ...data.plates.all().map(d => d.id)];
+      const at = Math.max(0, ids.indexOf(state.activePlate));
+      state.update({ activePlate: ids[(at + dir + ids.length) % ids.length] });
       return;
     }
     /* build: one list — 4 shapes then 5 wings */

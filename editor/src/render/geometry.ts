@@ -379,12 +379,15 @@ function emitMountedPart(
   }
 }
 
-/** the plate mesh a slot orientation needs on this cube, or null when the
-    shape has no face there / the face is buried under a full-cube neighbour */
+/** The plate mesh a slot orientation needs on this cube, or null when the
+    shape has no face there / the face is buried under a full-cube neighbour.
+    overrideId (the cube's per-face plateKinds entry) resolves through the
+    plate registry and wins when its faceType matches the face. */
 export function plateMeshFor(
   cube: { x: number; y: number; z: number; o: number; shape: number },
   slotO: number, data: GameData, variants: PlateVariants,
   cubeAtCell?: (x: number, y: number, z: number) => { shape: number } | undefined,
+  overrideId?: string | null,
 ): { pm: PlateMeshEntry; windowK: number } | null {
   const d = plateFaceDir(slotO);
   const M = ORIENTATIONS[cube.o];
@@ -402,12 +405,17 @@ export function plateMeshFor(
   if (!kind) return null;
   const nb = cubeAtCell?.(cube.x + d[0], cube.y + d[1], cube.z + d[2]);
   if (nb && nb.shape === 0) return null;          // buried under a full cube
+  const sm = data.shapeMesh[String(cube.shape)];
+  const windowK = ((sm && sm.window) || 1) * PLATE_MARGIN;
+  if (overrideId) {
+    const def = data.plates.get(overrideId);
+    if (def && def.faceType === kind) return { pm: def.mesh as PlateMeshEntry, windowK };
+  }
   const quads = data.plateMesh.quad_all ?? [];
   const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
   const pm = kind === 'quad' ? pickVariant(quads, variants.quad) : pickVariant(tris, variants.tri);
   if (!pm) return null;
-  const sm = data.shapeMesh[String(cube.shape)];
-  return { pm, windowK: ((sm && sm.window) || 1) * PLATE_MARGIN };
+  return { pm, windowK };
 }
 
 /** translucent preview triangles for the plate tool: the plate as it would be
@@ -415,8 +423,9 @@ export function plateMeshFor(
 export function mountedPlatePositions(
   cube: { x: number; y: number; z: number; o: number; shape: number },
   slotO: number, data: GameData, variants: PlateVariants,
+  overrideId?: string | null,
 ): number[] | null {
-  const found = plateMeshFor(cube, slotO, data, variants);
+  const found = plateMeshFor(cube, slotO, data, variants, undefined, overrideId);
   if (!found) return null;
   const pos: number[] = [];
   emitMountedPart((w) => { pos.push(w[0], w[1], w[2]); },
@@ -437,7 +446,7 @@ function addAxisPlates(
     for (let i = 0; i < 6 && i < cb.slots.length; i++) {
       const sl = cb.slots[i];
       if (!sl.p) continue;
-      const found = plateMeshFor(cb, sl.o, data, variants, cubeAt);
+      const found = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
       if (!found) continue;
       emitMountedPart((w, n, uv, tex) => {
         b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
@@ -462,10 +471,14 @@ function addNonAxisPlates(
 ): void {
   const types = data.plateMesh.types;
   if (!types) return;
+  const NON_AXIS_FACE: Record<number, 'slope' | 'diag' | 'cut'> = { 2: 'slope', 3: 'diag', 1: 'cut' };
   for (const cb of doc.cubes) {
     const typeName = NON_AXIS_TYPE[cb.shape];
     if (!typeName || !cb.slots?.[6]?.p) continue;
-    const pm = types[typeName];
+    const overrideId = cb.plateKinds?.[6];
+    const override = overrideId ? data.plates.get(overrideId) : undefined;
+    const pm = override && override.faceType === NON_AXIS_FACE[cb.shape]
+      ? override.mesh : types[typeName];
     const Mc = ORIENTATIONS[cb.o], Ms = ORIENTATIONS[cb.slots[6].o];
     if (!pm || !Mc || !Ms) continue;
     const mslot = slotOf(cb.comp);

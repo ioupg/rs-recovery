@@ -29,6 +29,10 @@ export interface Cube {
   variant?: number;
   counter?: number;
   slots?: PlateSlot[];
+  /** per-face plate mesh choice (plate registry ids, parallel to slots);
+      editor extension — the archive never stored variants. null/absent =
+      the default mesh for the face type. */
+  plateKinds?: (string | null)[];
 }
 
 export interface Wing {
@@ -68,6 +72,23 @@ export interface MaterialDef {
 }
 
 export type MaterialSet = Record<MaterialSlot, MaterialDef>;
+
+/** PBR response of one archive texture in mesh mode. The K factors multiply
+    the slot material's value so one texture tunes consistently across every
+    system that wears it. */
+export interface SurfaceDef {
+  /** tangent normal map strength (when a _n map exists) */
+  normalScale: number;
+  /** multiplier over the slot roughness */
+  roughnessK: number;
+  /** multiplier over the slot metalness */
+  metalnessK: number;
+  envIntensity: number;
+  /** multiply the diffuse by the slot color (false = full-colour texture) */
+  tint: boolean;
+}
+
+export type SurfaceSet = Record<string, SurfaceDef>;
 
 /* ── extra element kinds (JSON-only; ignored by the 2014 binary format) ──
    Engine-prototype schema per notes/07-authoring.md §4.3. All three are
@@ -115,6 +136,8 @@ export interface ShipDoc {
   wings: Wing[];
   /** per-slot overrides of the default material set, embedded on export */
   materials?: Partial<MaterialSet>;
+  /** per-texture surface response overrides (mesh mode), embedded on export */
+  surfaces?: Record<string, Partial<SurfaceDef>>;
   /** lattice/deco/guy prototypes — JSON extension, absent on archive ships */
   extras?: ExtraElement[];
 }

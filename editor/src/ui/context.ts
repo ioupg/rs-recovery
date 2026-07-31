@@ -3,7 +3,7 @@
    core implementation; main.ts supplies the real objects. */
 
 import type { ChangeKind, Cube, Issue, ShipDoc, Unsubscribe, Wing } from '../core/types';
-import type { MaterialStore } from '../core/materials';
+import type { MaterialStore, SurfaceStore } from '../core/materials';
 import type { GameData } from '../data/loader';
 import type { EditorState } from '../editor/state';
 
@@ -43,6 +43,7 @@ export interface UiContext {
   state: EditorState;
   history: HistoryLike;
   materials: MaterialStore;
+  surfaces: SurfaceStore;
   model: ModelLike;
   data: GameData;
   actions: UiActions;

@@ -10,7 +10,7 @@ import { SystemsRegistry } from '../core/systems';
 import type { GameData, ShipEntry } from '../data/loader';
 import { buildPlateRegistry } from '../data/plates';
 import type { BuildOptions } from './geometryTypes';
-import { buildShipGeometry } from './geometry';
+import { buildShipGeometry, mountedPlatePositions } from './geometry';
 import { buildPickGeometry } from './pick';
 
 /* the pipeline emits `const NAME = <json>;` script files, one per line */
@@ -158,6 +158,34 @@ describe('buildShipGeometry', () => {
         expect(built.geometry.getAttribute('position').count % 3).toBe(0);
         expect(built.geometry.getAttribute('position').count).toBeGreaterThan(0);
       }
+  });
+});
+
+describe('per-face plate mesh override', () => {
+  const cube = { x: 0, y: 0, z: 0, o: 0, shape: 0 };
+  /* orientation mounting a plate on some face of an o=0 cube */
+  const slotO = 0;
+  const variants = { quad: 1, slope: 0, tri: 0, eq: 0 };
+
+  it('resolves an override through the registry when the face type matches', () => {
+    const def = data.plates.byFaceType('quad').find(d => d.tris !== 12)!;
+    const base = mountedPlatePositions(cube, slotO, data, variants)!;
+    const over = mountedPlatePositions(cube, slotO, data, variants, def.id)!;
+    expect(base.length).toBe(12 * 3 * 3);           // default flat panel
+    expect(over.length).toBe(def.tris * 3 * 3);     // the chosen greeble
+  });
+
+  it('ignores overrides whose face type does not match', () => {
+    const slope = data.plates.byFaceType('slope')[0];
+    const base = mountedPlatePositions(cube, slotO, data, variants)!;
+    const over = mountedPlatePositions(cube, slotO, data, variants, slope.id)!;
+    expect(over.length).toBe(base.length);
+  });
+
+  it('unknown ids fall back to the default', () => {
+    const base = mountedPlatePositions(cube, slotO, data, variants)!;
+    const over = mountedPlatePositions(cube, slotO, data, variants, 'nope/404')!;
+    expect(over.length).toBe(base.length);
   });
 });
 

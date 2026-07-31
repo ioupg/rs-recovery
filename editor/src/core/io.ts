@@ -2,7 +2,7 @@
    Type-only imports from data/loader keep this module free of the fetch-based
    loadGameData() side effects, so it stays safe to import under vitest/node. */
 
-import type { Cube, ExtraElement, MaterialSet, PlateSlot, ShipDoc, ShipMeta, Wing } from './types';
+import type { Cube, ExtraElement, MaterialSet, PlateSlot, ShipDoc, ShipMeta, SurfaceDef, Wing } from './types';
 import type { RawCube, RawWing, ShipEntry } from '../data/loader';
 
 /** cube shape as it appears in parsed archive/recovery JSON — the known
@@ -11,6 +11,7 @@ interface JsonCube {
   [key: string]: unknown;
   o: number; x: number; y: number; z: number; shape: number; comp: number;
   id?: number; flag?: number; variant?: number; counter?: number; slots?: PlateSlot[];
+  plateKinds?: (string | null)[];
 }
 
 /** wing shape as it appears in parsed JSON — unknown extra keys are kept in
@@ -29,6 +30,7 @@ interface ImportJsonShape {
   elements?: JsonWing[];
   meta?: Partial<ShipMeta>;
   materials?: Partial<MaterialSet>;
+  surfaces?: Record<string, Partial<SurfaceDef>>;
   /** lattice/deco/guy prototypes, notes/07-authoring.md §4.3 (uids reassigned) */
   extras?: (ExtraSpec & { uid?: number })[];
 }
@@ -41,11 +43,14 @@ function isImportJsonShape(json: unknown): json is ImportJsonShape {
 /** ShipEntry's RawCube already carries every archive field required by
     ImportJsonShape's cubes, so both import paths share this mapping. */
 function toCube(uid: number, rc: RawCube | JsonCube): Cube {
-  return {
+  const pk = (rc as JsonCube).plateKinds;
+  const c: Cube = {
     uid, x: rc.x, y: rc.y, z: rc.z, o: rc.o, shape: rc.shape as Cube['shape'], comp: rc.comp,
     id: rc.id, flag: rc.flag, variant: rc.variant, counter: rc.counter,
     slots: rc.slots ? rc.slots.map(s => ({ ...s })) : undefined,
   };
+  if (pk?.some(k => k != null)) c.plateKinds = [...pk];
+  return c;
 }
 
 /** takes an entry straight out of the fleet data (ships.js/ships.json) */
@@ -87,6 +92,7 @@ export function importShipJson(json: unknown, fallbackName: string): ShipDoc {
   };
   const doc: ShipDoc = { meta, cubes, wings };
   if (json.materials) doc.materials = json.materials;
+  if (json.surfaces) doc.surfaces = json.surfaces;
   if (json.extras?.length)
     doc.extras = json.extras.map(e => ({ ...e, uid: uid++ }) as ExtraElement);
   return doc;
@@ -105,22 +111,25 @@ export function exportShipJson(doc: ShipDoc, slotDefaults: PlateSlot[][]): unkno
   let nextId = maxId + 1;
   let nextCounter = maxCounter + 1;
 
-  const cubes: RawCube[] = doc.cubes.map(c => ({
+  const cubes: (RawCube & { plateKinds?: (string | null)[] })[] = doc.cubes.map(c => ({
     o: c.o, x: c.x, y: c.y, z: c.z, shape: c.shape, comp: c.comp,
     id: c.id ?? nextId++,
     flag: c.flag ?? 0,
     variant: c.variant ?? 0,
     counter: c.counter ?? nextCounter++,
     slots: c.slots ? c.slots.map(s => ({ ...s })) : slotDefaults[c.o].map(s => ({ ...s })),
+    ...(c.plateKinds?.some(k => k != null) ? { plateKinds: [...c.plateKinds] } : {}),
   }));
 
   const elements = doc.wings.map(w => ({ o: w.o, x: w.x, y: w.y, z: w.z, kind: w.kind, ...(w.extra ?? {}) }));
 
   const out: {
     cubes: RawCube[]; elements: unknown[]; meta: ShipMeta;
-    materials?: Partial<MaterialSet>; extras?: unknown[];
+    materials?: Partial<MaterialSet>;
+    surfaces?: Record<string, Partial<SurfaceDef>>; extras?: unknown[];
   } = { cubes, elements, meta: { ...doc.meta } };
   if (doc.materials) out.materials = doc.materials;
+  if (doc.surfaces) out.surfaces = doc.surfaces;
   if (doc.extras?.length)
     out.extras = doc.extras.map(({ uid: _uid, ...rest }) => rest);
   return out;
