@@ -70,6 +70,20 @@ export interface GameData {
   moduleByName?: Record<string, ModuleMeshEntry>;
 }
 
+/** every archive texture the meshes reference (plus the procedural wing
+    film) — the key space of the mesh-mode material assignments */
+export function collectTextureNames(data: GameData): string[] {
+  const names = new Set<string>(['wing_solar']);
+  const walk = (subs?: { tex?: string[] }[]): void => {
+    for (const s of subs ?? []) for (const t of s.tex ?? []) names.add(t);
+  };
+  for (const v of Object.values(data.shapeMesh)) walk(v.sub);
+  for (const d of data.plates.all()) walk(d.mesh.sub);
+  for (const m of data.moduleMesh) walk(m?.sub);
+  for (const w of data.wingMesh) walk(w?.sub);
+  return [...names].sort();
+}
+
 async function json<T>(name: string): Promise<T> {
   const res = await fetch(`${import.meta.env.BASE_URL}data/${name}`);
   if (!res.ok) throw new Error(`failed to load ${name}: ${res.status}`);

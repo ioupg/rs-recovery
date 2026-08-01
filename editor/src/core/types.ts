@@ -73,22 +73,50 @@ export interface MaterialDef {
 
 export type MaterialSet = Record<MaterialSlot, MaterialDef>;
 
-/** PBR response of one archive texture in mesh mode. The K factors multiply
-    the slot material's value so one texture tunes consistently across every
-    system that wears it. */
-export interface SurfaceDef {
-  /** tangent normal map strength (when a _n map exists) */
-  normalScale: number;
-  /** multiplier over the slot roughness */
-  roughnessK: number;
-  /** multiplier over the slot metalness */
-  metalnessK: number;
-  envIntensity: number;
-  /** multiply the diffuse by the slot color (false = full-colour texture) */
-  tint: boolean;
+/* ── material library (app-level curated PBR assets) ────────
+   A LibMaterial is a self-contained PBR material: a map set plus scalar
+   params. Mesh mode resolves every archive texture name through the
+   AssignmentStore to one of these — the recovered archive textures are
+   themselves wrapped as `legacy` library entries, so the default mapping
+   is the identity and renders the authentic look. */
+
+/** Texture URLs relative to the site base (textureCache prefixes BASE_URL). */
+export interface LibMaterialMaps {
+  /** sRGB base colour */
+  albedo?: string;
+  /** tangent normal map, OpenGL convention (green = Y up) */
+  normal?: string;
+  /** grayscale roughness (the legacy derived `_r` maps) */
+  roughness?: string;
+  /** packed glTF ORM (AO in R, roughness in G, metalness in B); wins over
+      `roughness` when both are present */
+  orm?: string;
+  emissive?: string;
 }
 
-export type SurfaceSet = Record<string, SurfaceDef>;
+/** Scalars follow three.js semantics: when a matching map exists they
+    multiply the sampled value, otherwise they are the value. */
+export interface LibMaterial {
+  id: string;
+  name: string;
+  /** wraps a recovered archive texture — generated at startup, not stored
+      in materials.json (though json entries may override one by id) */
+  legacy?: boolean;
+  maps: LibMaterialMaps;
+  color: string;
+  roughness: number;
+  metalness: number;
+  normalScale: number;
+  envIntensity: number;
+  emissive: string;
+  emissiveIntensity: number;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  /** uniform UV repeat multiplier over the authored UVs (1 = as authored) */
+  uvScale: number;
+  /** degrees CCW about the (0.5, 0.5) UV centre */
+  uvRotation: number;
+}
 
 /* ── extra element kinds (JSON-only; ignored by the 2014 binary format) ──
    Engine-prototype schema per notes/07-authoring.md §4.3. All three are
@@ -136,8 +164,9 @@ export interface ShipDoc {
   wings: Wing[];
   /** per-slot overrides of the default material set, embedded on export */
   materials?: Partial<MaterialSet>;
-  /** per-texture surface response overrides (mesh mode), embedded on export */
-  surfaces?: Record<string, Partial<SurfaceDef>>;
+  /** archive texture name → library material id (mesh mode); identity
+      (name = id, the legacy wrap) is the default and never stored */
+  assignments?: Record<string, string>;
   /** lattice/deco/guy prototypes — JSON extension, absent on archive ships */
   extras?: ExtraElement[];
 }

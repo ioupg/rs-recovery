@@ -33,3 +33,5 @@ tmp/
 .gemini_key
 
 __pycache__/
+# editor: curated material library mirror (copied from materials/ by the vite plugin)
+editor/public/materials/

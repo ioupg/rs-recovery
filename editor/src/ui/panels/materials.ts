@@ -1,8 +1,15 @@
-/* "Materials" tab: one expandable row per material slot, live-editing the
-   MaterialStore; reflects external changes (e.g. resetSlot) via subscribe. */
+/* "Materials" tab: assignment rows (archive texture → library material, mesh
+   mode) plus the Schematic colors section (box/facet/plate modes and systems
+   view — unchanged MaterialStore slot-def behavior). The old per-texture
+   slider section and "tint by system" are gone: mesh-mode materials are now
+   fully library-driven via the material browser modal. */
 
 import type { UiContext } from '../context';
-import type { MaterialDef, MaterialSlot } from '../../core/types';
+import type { LibMaterial, MaterialDef, MaterialSlot } from '../../core/types';
+import { collectTextureNames } from '../../data/loader';
+import { renderMaterialThumb } from '../../render/shapePreview';
+import { subscribeTextureLoads } from '../../render/textureCache';
+import { openMaterialBrowser } from '../materialBrowser';
 import { button, h } from '../dom';
 
 type SliderKey = 'roughness' | 'metalness' | 'clearcoat' | 'clearcoatRoughness';
@@ -23,82 +30,57 @@ function slider(label: string, min: number, max: number): { row: HTMLLabelElemen
   return { row, input, val };
 }
 
-/** every archive texture the meshes reference — the Surface list */
-function textureNames(ctx: UiContext): string[] {
-  const names = new Set<string>(['wing_solar']);
-  const walk = (subs?: { tex?: string[] }[]): void => {
-    for (const s of subs ?? []) for (const t of s.tex ?? []) names.add(t);
-  };
-  for (const v of Object.values(ctx.data.shapeMesh)) walk(v.sub);
-  for (const d of ctx.data.plates.all()) walk(d.mesh.sub);
-  for (const m of ctx.data.moduleMesh) walk(m?.sub);
-  for (const w of ctx.data.wingMesh) walk(w?.sub);
-  return [...names].sort();
+const shortName = (name: string): string => name.replace(/\.(bmp|png|jpg)$/i, '');
+
+/** the assigned library material for a texture name, falling back to its own
+    legacy wrap if the assigned id has gone missing (defensive) */
+function resolveAssigned(ctx: UiContext, name: string): LibMaterial | undefined {
+  return ctx.library.byId(ctx.assignments.get(name)) ?? ctx.library.byId(name);
 }
 
-type SurfKey = 'normalScale' | 'roughnessK' | 'metalnessK' | 'envIntensity';
-const SURF_SLIDERS: { key: SurfKey; label: string; max: number }[] = [
-  { key: 'normalScale', label: 'normal strength', max: 2 },
-  { key: 'roughnessK', label: 'roughness ×', max: 2 },
-  { key: 'metalnessK', label: 'metalness ×', max: 2 },
-  { key: 'envIntensity', label: 'reflections', max: 2 },
-];
+/** one row per archive texture name — click opens the material browser to
+    reassign it; thumb + assigned material name reflect the current mapping */
+function buildAssignmentSection(host: HTMLElement, ctx: UiContext): void {
+  host.append(h('h3', 'mat-section', 'Materials'));
 
-/** per-texture PBR response of the mesh-mode materials — the primary control */
-function buildSurfaceSection(host: HTMLElement, ctx: UiContext): void {
-  host.append(h('h3', 'mat-section', 'Surface textures'));
-  for (const name of textureNames(ctx)) {
-    const row = h('div', 'mat-row');
-    const head = h('button', 'mat-head');
-    head.type = 'button';
-    const short = name.replace(/\.(bmp|png|jpg)$/i, '');
-    head.append(h('span', 'mat-name', short), h('span', 'mat-caret', '▸'));
-    const body = h('div', 'mat-body');
+  const rows: { name: string; img: HTMLImageElement; matName: HTMLElement }[] = [];
+  for (const name of collectTextureNames(ctx.data)) {
+    const row = h('button', 'matlib-row');
+    row.type = 'button';
 
-    const sliderEls = new Map<SurfKey, { input: HTMLInputElement; val: HTMLSpanElement }>();
-    for (const s of SURF_SLIDERS) {
-      const built = slider(s.label, 0, s.max);
-      sliderEls.set(s.key, { input: built.input, val: built.val });
-      body.append(built.row);
-    }
-    const tintRow = document.createElement('label');
-    const tintInput = document.createElement('input');
-    tintInput.type = 'checkbox';
-    tintRow.append('tint by system', tintInput);
-    const resetBtn = button('reset', { class: 'reset-btn' });
-    body.append(tintRow, resetBtn);
-    row.append(head, body);
+    const img = document.createElement('img');
+    img.className = 'matlib-thumb';
+    img.alt = name;
+
+    const matName = h('span', 'matlib-mat');
+    const info = h('span', 'matlib-info');
+    info.append(h('span', 'matlib-tex', shortName(name)), matName);
+    row.append(img, info);
+    row.onclick = () => openMaterialBrowser(ctx, { assignFor: name });
     host.append(row);
 
-    const refresh = (): void => {
-      const def = ctx.surfaces.get(name);
-      for (const s of SURF_SLIDERS) {
-        const e = sliderEls.get(s.key)!;
-        e.input.value = String(def[s.key]);
-        e.val.textContent = def[s.key].toFixed(2);
-      }
-      tintInput.checked = def.tint;
-    };
-    refresh();
-
-    for (const s of SURF_SLIDERS) {
-      const e = sliderEls.get(s.key)!;
-      e.input.oninput = () => {
-        const v = Number(e.input.value);
-        e.val.textContent = v.toFixed(2);
-        ctx.surfaces.patch(name, { [s.key]: v });
-      };
-    }
-    tintInput.onchange = () => ctx.surfaces.patch(name, { tint: tintInput.checked });
-    resetBtn.onclick = () => ctx.surfaces.reset(name);
-    head.onclick = () => row.classList.toggle('open');
-    ctx.surfaces.subscribe(refresh);
+    rows.push({ name, img, matName });
   }
+
+  const refresh = (): void => {
+    for (const r of rows) {
+      const mat = resolveAssigned(ctx, r.name);
+      if (!mat) continue;
+      r.img.src = renderMaterialThumb(mat);
+      r.matName.textContent = mat.name;
+    }
+  };
+  refresh();
+
+  ctx.assignments.subscribe(refresh);
+  ctx.library.subscribe(refresh);
+  subscribeTextureLoads(refresh);
 }
 
-export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
-  buildSurfaceSection(host, ctx);
-  host.append(h('h3', 'mat-section', 'Part colors'));
+/** the box/facet/plate/systems-view slot palette — unchanged behavior,
+    formerly titled "Part colors" */
+function buildSchematicSection(host: HTMLElement, ctx: UiContext): void {
+  host.append(h('h3', 'mat-section', 'Schematic colors'));
   const slotName = (slot: MaterialSlot): string => {
     if (slot === 'wing') return 'wing';
     const def = ctx.data.systems.byId(Number(slot.slice(4)));
@@ -177,4 +159,9 @@ export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
 
     ctx.materials.subscribe(refresh);
   }
+}
+
+export function buildMaterialsTab(host: HTMLElement, ctx: UiContext): void {
+  buildAssignmentSection(host, ctx);
+  buildSchematicSection(host, ctx);
 }

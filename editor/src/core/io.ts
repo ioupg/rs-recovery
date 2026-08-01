@@ -2,7 +2,7 @@
    Type-only imports from data/loader keep this module free of the fetch-based
    loadGameData() side effects, so it stays safe to import under vitest/node. */
 
-import type { Cube, ExtraElement, MaterialSet, PlateSlot, ShipDoc, ShipMeta, SurfaceDef, Wing } from './types';
+import type { Cube, ExtraElement, MaterialSet, PlateSlot, ShipDoc, ShipMeta, Wing } from './types';
 import type { RawCube, RawWing, ShipEntry } from '../data/loader';
 
 /** cube shape as it appears in parsed archive/recovery JSON — the known
@@ -30,7 +30,10 @@ interface ImportJsonShape {
   elements?: JsonWing[];
   meta?: Partial<ShipMeta>;
   materials?: Partial<MaterialSet>;
-  surfaces?: Record<string, Partial<SurfaceDef>>;
+  /** archive texture name → library material id */
+  assignments?: Record<string, string>;
+  /** pre-library per-texture tuning (2026-07 era docs) — obsolete, ignored */
+  surfaces?: unknown;
   /** lattice/deco/guy prototypes, notes/07-authoring.md §4.3 (uids reassigned) */
   extras?: (ExtraSpec & { uid?: number })[];
 }
@@ -92,7 +95,10 @@ export function importShipJson(json: unknown, fallbackName: string): ShipDoc {
   };
   const doc: ShipDoc = { meta, cubes, wings };
   if (json.materials) doc.materials = json.materials;
-  if (json.surfaces) doc.surfaces = json.surfaces;
+  if (json.assignments) doc.assignments = json.assignments;
+  if (json.surfaces)
+    console.info('ship JSON carries pre-library "surfaces" tuning — ignored '
+      + '(mesh materials are library-driven now; reassign via the material browser)');
   if (json.extras?.length)
     doc.extras = json.extras.map(e => ({ ...e, uid: uid++ }) as ExtraElement);
   return doc;
@@ -126,10 +132,10 @@ export function exportShipJson(doc: ShipDoc, slotDefaults: PlateSlot[][]): unkno
   const out: {
     cubes: RawCube[]; elements: unknown[]; meta: ShipMeta;
     materials?: Partial<MaterialSet>;
-    surfaces?: Record<string, Partial<SurfaceDef>>; extras?: unknown[];
+    assignments?: Record<string, string>; extras?: unknown[];
   } = { cubes, elements, meta: { ...doc.meta } };
   if (doc.materials) out.materials = doc.materials;
-  if (doc.surfaces) out.surfaces = doc.surfaces;
+  if (doc.assignments) out.assignments = doc.assignments;
   if (doc.extras?.length)
     out.extras = doc.extras.map(({ uid: _uid, ...rest }) => rest);
   return out;

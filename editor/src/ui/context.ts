@@ -3,7 +3,8 @@
    core implementation; main.ts supplies the real objects. */
 
 import type { ChangeKind, Cube, Issue, ShipDoc, Unsubscribe, Wing } from '../core/types';
-import type { MaterialStore, SurfaceStore } from '../core/materials';
+import type { AssignmentStore, MaterialStore } from '../core/materials';
+import type { MaterialLibrary } from '../core/library';
 import type { GameData } from '../data/loader';
 import type { SavedDesign } from '../data/localDesigns';
 import type { EditorState } from '../editor/state';
@@ -49,7 +50,10 @@ export interface UiContext {
   state: EditorState;
   history: HistoryLike;
   materials: MaterialStore;
-  surfaces: SurfaceStore;
+  /** app-level PBR material library (mesh mode) */
+  library: MaterialLibrary;
+  /** archive texture → library material mapping (per-ship, exported) */
+  assignments: AssignmentStore;
   model: ModelLike;
   data: GameData;
   actions: UiActions;

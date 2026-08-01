@@ -2,11 +2,13 @@
    controller → UI chrome. Everything reactive flows through EditorState,
    ShipModel and MaterialStore subscriptions. */
 
-import { loadGameData } from './data/loader';
+import { collectTextureNames, loadGameData } from './data/loader';
 import { deleteDesign, getDesign, listDesigns, saveDesign } from './data/localDesigns';
+import { loadLibraryOverlay, loadShippedLibrary, saveLibraryOverlay } from './data/libraryStore';
 import { ShipModel } from './core/model';
 import { History } from './core/history';
-import { buildDefaultMaterials, MaterialStore, SurfaceStore } from './core/materials';
+import { AssignmentStore, buildDefaultMaterials, MaterialStore } from './core/materials';
+import { buildLibraryDefaults, legacyMaterials, MaterialLibrary } from './core/library';
 import { exportShipJson, importShip, importShipJson } from './core/io';
 import { validate } from './core/validation';
 import type { ShipDoc } from './core/types';
@@ -14,7 +16,7 @@ import { EditorState } from './editor/state';
 import { EditorController } from './editor/controller';
 import { createScene } from './render/scene';
 import { MaterialCache } from './render/materialCache';
-import { initTextureMaps } from './render/textureCache';
+import { getManifest, initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
 import { Viewports } from './render/viewports';
 import { ShapePreview } from './render/shapePreview';
@@ -40,14 +42,18 @@ function download(name: string, data: BlobPart, type: string): void {
 
 async function init(): Promise<void> {
   const root = document.getElementById('app')!;
-  const data = await loadGameData();
+  const [data, shipped] = await Promise.all([loadGameData(), loadShippedLibrary()]);
   await initTextureMaps();
 
   const state = new EditorState();
   const model = new ShipModel(emptyDoc());
   const history = new History(model);
   const materials = new MaterialStore(buildDefaultMaterials(data.systems.all()));
-  const surfaces = new SurfaceStore();
+  const library = new MaterialLibrary(buildLibraryDefaults(
+    legacyMaterials(collectTextureNames(data), getManifest()), shipped));
+  library.applyOverlay(loadLibraryOverlay());
+  library.subscribe(() => saveLibraryOverlay(library.diff()));
+  const assignments = new AssignmentStore();
 
   /* forward references filled after the scene exists */
   let view: ShipView;
@@ -58,7 +64,7 @@ async function init(): Promise<void> {
   const loadDoc = (doc: ShipDoc): void => {
     model.load(doc);
     materials.load(doc.materials);
-    surfaces.load(doc.surfaces);
+    assignments.load(doc.assignments);
     history.clear();
     state.select([]);
     actions.fitView();
@@ -76,7 +82,7 @@ async function init(): Promise<void> {
         .catch(e => refs.setStatus(`import failed: ${String(e)}`));
     },
     exportJson: () => {
-      const doc: ShipDoc = { ...model.doc, materials: materials.diff(), surfaces: surfaces.diff() };
+      const doc: ShipDoc = { ...model.doc, materials: materials.diff(), assignments: assignments.diff() };
       download(`${model.doc.meta.name}.json`,
         JSON.stringify(exportShipJson(doc, data.slotDefaults), null, 1), 'application/json');
     },
@@ -88,7 +94,7 @@ async function init(): Promise<void> {
         ...model.doc,
         meta: { ...model.doc.meta, name, display: name },
         materials: materials.diff(),
-        surfaces: surfaces.diff(),
+        assignments: assignments.diff(),
       };
       const existed = getDesign(name) !== undefined;
       const ok = saveDesign({
@@ -130,7 +136,7 @@ async function init(): Promise<void> {
     deleteSelection: () => controller.deleteSelection(),
   };
 
-  const ctx: UiContext = { state, history, materials, surfaces, model, data, actions };
+  const ctx: UiContext = { state, history, materials, library, assignments, model, data, actions };
   const refs = buildUi(root, ctx);
 
   const canvas = document.createElement('canvas');
@@ -140,7 +146,7 @@ async function init(): Promise<void> {
   const sceneCtx = createScene(canvas);
   fitShadow = b => sceneCtx.fitShadow(b as { min: [number, number, number]; max: [number, number, number] });
   viewports = new Viewports(refs.stage, sceneCtx.renderer);
-  const cache = new MaterialCache(materials, surfaces);
+  const cache = new MaterialCache(materials, library, assignments);
   view = new ShipView(sceneCtx, cache, data, uid => model.byUid(uid));
   view.setDoc(model.doc);
   view.setOptions(state.render);

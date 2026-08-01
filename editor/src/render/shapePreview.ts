@@ -4,8 +4,11 @@
    Renders on demand only — no animation loop. */
 
 import * as THREE from 'three';
-import type { ShapeId } from '../core/types';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import type { LibMaterial, ShapeId } from '../core/types';
 import { FACES, WING_RING, corner, rotDir } from '../core/tables';
+import { applyLibMaterial, buildPreviewMaterial } from './libMaterial';
 
 export interface PreviewSpec {
   kind: 'cube' | 'wing';
@@ -233,4 +236,170 @@ export function renderThumbnail(spec: ThumbSpec, size = 56): string {
 
   t.renderer.render(t.scene, t.camera);
   return t.renderer.domElement.toDataURL();
+}
+
+/* ── material library previews ──────────────────────────────────
+   The picker thumbnails above are flat-lit (Hemisphere + one key light) —
+   fine for reading shape/orientation but not enough for a metal library
+   material to look like anything. These get a PMREM environment so
+   metalness/roughness/clearcoat actually read. */
+
+/** built once, lazily, directly on the shared thumb scene above — every
+    thumbnail (shape/wing/mesh included) picks up the same ambient reflection
+    afterwards, which is the point: one consistent lighting rig, one shared
+    WebGL context (browsers cap how many a page may open). */
+let thumbEnvBuilt = false;
+function ensureThumbEnv(t: ReturnType<typeof thumbCtx>): void {
+  if (thumbEnvBuilt) return;
+  thumbEnvBuilt = true;
+  const pmrem = new THREE.PMREMGenerator(t.renderer);
+  const envSource = new RoomEnvironment();
+  t.scene.environment = pmrem.fromScene(envSource, 0.04).texture;
+  t.scene.environmentIntensity = 0.9;
+  envSource.dispose();
+  pmrem.dispose();
+}
+
+/** render a material library thumbnail: a sphere under the shared thumbnail
+    renderer, synchronous, returns a PNG data URL. The preview material is
+    fresh per call and disposed after render — only buildPreviewMaterial's
+    textures are cache-owned and must survive it. */
+export function renderMaterialThumb(mat: LibMaterial, size = 56): string {
+  const t = thumbCtx(size);
+  ensureThumbEnv(t);
+
+  const material = buildPreviewMaterial(mat);
+  const geo = new THREE.SphereGeometry(0.85, 48, 32);
+  const mesh = new THREE.Mesh(geo, material);
+  t.content.add(mesh);
+
+  t.renderer.render(t.scene, t.camera);
+  const url = t.renderer.domElement.toDataURL();
+
+  t.content.remove(mesh);
+  geo.dispose();
+  material.dispose();
+  return url;
+}
+
+/** modal-sized orbitable material preview — its own renderer/scene/camera
+    (a picker-sized canvas is worth a dedicated WebGL context, unlike the
+    swarm of list thumbnails above). Render-on-demand only: the caller drives
+    every frame via update()/setShape() or its own pointer-drag handling. */
+export class MaterialPreview {
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera: THREE.PerspectiveCamera;
+  private material = new THREE.MeshPhysicalMaterial();
+  private mesh: THREE.Mesh;
+  private shape: 'sphere' | 'cube' = 'sphere';
+
+  private azimuth = 0.6;
+  private elevation = 0.3;
+  private readonly radius = 2.4;
+  private dragging = false;
+  private lastX = 0;
+  private lastY = 0;
+
+  constructor(private canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const envSource = new RoomEnvironment();
+    this.scene.environment = pmrem.fromScene(envSource, 0.04).texture;
+    this.scene.environmentIntensity = 0.9;
+    envSource.dispose();
+    pmrem.dispose();
+
+    this.scene.add(new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 1.0));
+    const key = new THREE.DirectionalLight(0xfff2dc, 1.2);
+    key.position.set(3, 5, 2);
+    this.scene.add(key);
+
+    this.mesh = new THREE.Mesh(new THREE.SphereGeometry(0.7, 48, 32), this.material);
+    this.scene.add(this.mesh);
+    this.updateCamera();
+
+    canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointermove', this.onPointerMove);
+    canvas.addEventListener('pointerup', this.onPointerUp);
+    canvas.addEventListener('pointerleave', this.onPointerUp);
+
+    this.render();
+  }
+
+  /** re-apply the material in place (one live instance, patched — same
+      invariant as the cached ship materials) and render. */
+  update(mat: LibMaterial): void {
+    applyLibMaterial(this.material, mat);
+    this.render();
+  }
+
+  setShape(s: 'sphere' | 'cube'): void {
+    if (s === this.shape) return;
+    this.shape = s;
+    this.scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    const geo = s === 'sphere'
+      ? new THREE.SphereGeometry(0.7, 48, 32)
+      : new RoundedBoxGeometry(1.1, 1.1, 1.1, 4, 0.06);
+    this.mesh = new THREE.Mesh(geo, this.material);
+    this.scene.add(this.mesh);
+    this.render();
+  }
+
+  /** full cleanup — the material and its geometry are this instance's own;
+      the maps on the material are cache-owned and are left untouched. */
+  dispose(): void {
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
+    this.canvas.removeEventListener('pointermove', this.onPointerMove);
+    this.canvas.removeEventListener('pointerup', this.onPointerUp);
+    this.canvas.removeEventListener('pointerleave', this.onPointerUp);
+    this.mesh.geometry.dispose();
+    this.material.dispose();
+    this.scene.environment?.dispose();
+    this.renderer.dispose();
+  }
+
+  private onPointerDown = (e: PointerEvent): void => {
+    this.dragging = true;
+    this.lastX = e.clientX;
+    this.lastY = e.clientY;
+    this.canvas.setPointerCapture(e.pointerId);
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    if (!this.dragging) return;
+    const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
+    this.lastX = e.clientX;
+    this.lastY = e.clientY;
+    this.azimuth -= dx * 0.008;
+    this.elevation = Math.max(-1.35, Math.min(1.35, this.elevation + dy * 0.008));
+    this.updateCamera();
+    this.render();
+  };
+
+  private onPointerUp = (): void => {
+    this.dragging = false;
+  };
+
+  private updateCamera(): void {
+    const r = this.radius;
+    this.camera.position.set(
+      r * Math.cos(this.elevation) * Math.sin(this.azimuth),
+      r * Math.sin(this.elevation),
+      r * Math.cos(this.elevation) * Math.cos(this.azimuth),
+    );
+    this.camera.lookAt(0, 0, 0);
+  }
+
+  private render(): void {
+    const w = this.canvas.clientWidth || 260, h = this.canvas.clientHeight || 260;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.render(this.scene, this.camera);
+  }
 }

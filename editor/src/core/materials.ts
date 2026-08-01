@@ -3,7 +3,7 @@
    from the systems registry (`comp<id>`) plus 'wing'. */
 
 import type {
-  ChangeKind, MaterialDef, MaterialSet, MaterialSlot, SurfaceDef, Unsubscribe,
+  ChangeKind, MaterialDef, MaterialSet, MaterialSlot, Unsubscribe,
 } from './types';
 import { WING_SLOT } from './types';
 import type { SystemDef } from './systems';
@@ -110,32 +110,23 @@ export class MaterialStore {
   private emit(): void { for (const fn of this.listeners) fn('materials'); }
 }
 
-/* ── per-texture surface response (mesh mode) ──────────────────
-   One SurfaceDef per archive texture name; multiplies the slot material so
-   the tuning holds across every system wearing the texture. `tint: false`
-   defaults are the structural full-colour textures (the engine's own system
-   palette and the solar wing film). */
+/* ── mesh-mode material assignments ────────────────────────────
+   Archive texture name → library material id. The default is the identity
+   (every archive texture resolves to its own legacy wrap in the
+   MaterialLibrary), so a fresh doc renders the authentic recovered look and
+   only remaps are stored/exported. */
 
-const SURFACE_BASE: SurfaceDef = {
-  normalScale: 0.5, roughnessK: 1, metalnessK: 1, envIntensity: 1, tint: true,
-};
-
-export const UNTINTED_TEXTURES = ['system_colors.png', 'wing_solar'];
-
-export class SurfaceStore {
-  private set = new Map<string, SurfaceDef>();
+export class AssignmentStore {
+  private set = new Map<string, string>();
   private listeners = new Set<(kind: ChangeKind) => void>();
 
-  private defaultFor(name: string): SurfaceDef {
-    return { ...SURFACE_BASE, tint: !UNTINTED_TEXTURES.includes(name) };
-  }
+  /** the assigned library material id (the texture's own legacy wrap by default) */
+  get(name: string): string { return this.set.get(name) ?? name; }
 
-  get(name: string): SurfaceDef {
-    return this.set.get(name) ?? this.defaultFor(name);
-  }
-
-  patch(name: string, patch: Partial<SurfaceDef>): void {
-    this.set.set(name, { ...this.get(name), ...patch });
+  /** assigning a texture back to itself clears the override */
+  assign(name: string, materialId: string): void {
+    if (materialId === name) this.set.delete(name);
+    else this.set.set(name, materialId);
     this.emit();
   }
 
@@ -144,23 +135,17 @@ export class SurfaceStore {
     this.emit();
   }
 
-  load(overrides?: Record<string, Partial<SurfaceDef>>): void {
+  load(overrides?: Record<string, string>): void {
     this.set.clear();
     if (overrides)
-      for (const [name, o] of Object.entries(overrides))
-        this.set.set(name, { ...this.defaultFor(name), ...o });
+      for (const [name, id] of Object.entries(overrides))
+        if (id !== name) this.set.set(name, id);
     this.emit();
   }
 
-  /** entries that differ from the defaults — embedded in exported ship JSON */
-  diff(): Record<string, Partial<SurfaceDef>> | undefined {
-    const out: Record<string, Partial<SurfaceDef>> = {};
-    let any = false;
-    for (const [name, def] of this.set) {
-      const base = this.defaultFor(name);
-      if (JSON.stringify(def) !== JSON.stringify(base)) { out[name] = { ...def }; any = true; }
-    }
-    return any ? out : undefined;
+  /** non-identity assignments — embedded in exported ship JSON */
+  diff(): Record<string, string> | undefined {
+    return this.set.size ? Object.fromEntries(this.set) : undefined;
   }
 
   subscribe(fn: (kind: ChangeKind) => void): Unsubscribe {

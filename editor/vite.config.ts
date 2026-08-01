@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +49,11 @@ function rsDataPlugin(): Plugin {
       const manifest = resolve(pbrSrc, 'manifest.json');
       if (existsSync(manifest)) copyFileSync(manifest, resolve(texDst, 'manifest.json'));
     }
+    /* curated PBR material library (materials.json + per-id texture folders);
+       absence tolerated — the library then holds only the legacy wraps */
+    const matSrc = resolve(root, '../materials');
+    if (existsSync(matSrc))
+      cpSync(matSrc, resolve(root, 'public/materials'), { recursive: true });
   };
   return {
     name: 'rs-data',

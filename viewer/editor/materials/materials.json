@@ -1,0 +1,13 @@
+{
+  "//": "Curated app-level PBR material library. Copied to editor/public/materials/ by the vite data plugin. Entries are sparse — core/library.ts normalizeMaterial() fills defaults (see LIB_DEFAULTS). Texture sets live in materials/<id>/ with maps paths like 'materials/<id>/albedo.png'; see notes/08-materials.md for the provision convention. An entry whose id matches an archive texture name re-tunes that legacy wrap.",
+  "materials": [
+    { "id": "bare-metal", "name": "Bare metal", "maps": {}, "color": "#c8cdd2", "roughness": 0.35, "metalness": 0.95 },
+    { "id": "dark-steel", "name": "Dark steel", "maps": {}, "color": "#4d5359", "roughness": 0.45, "metalness": 0.85 },
+    { "id": "gunmetal", "name": "Gunmetal", "maps": {}, "color": "#33383e", "roughness": 0.55, "metalness": 0.7 },
+    { "id": "hull-paint-white", "name": "Hull paint · white", "maps": {}, "color": "#dfe3e6", "roughness": 0.6, "metalness": 0.05, "clearcoat": 0.4, "clearcoatRoughness": 0.25 },
+    { "id": "hull-paint-red", "name": "Hull paint · red", "maps": {}, "color": "#a03028", "roughness": 0.6, "metalness": 0.05, "clearcoat": 0.4, "clearcoatRoughness": 0.25 },
+    { "id": "hull-paint-navy", "name": "Hull paint · navy", "maps": {}, "color": "#2b3d55", "roughness": 0.6, "metalness": 0.05, "clearcoat": 0.4, "clearcoatRoughness": 0.25 },
+    { "id": "anodized-gold", "name": "Anodized gold", "maps": {}, "color": "#c9a227", "roughness": 0.3, "metalness": 1 },
+    { "id": "rubber-black", "name": "Rubber · black", "maps": {}, "color": "#1c1e20", "roughness": 0.92, "metalness": 0 }
+  ]
+}

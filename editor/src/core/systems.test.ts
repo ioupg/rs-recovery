@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ARCHIVE_SYSTEMS, SystemsRegistry } from './systems';
-import { buildDefaultMaterials, compSlot, DEFAULT_MATERIALS, MaterialStore, SurfaceStore } from './materials';
+import { buildDefaultMaterials, compSlot, DEFAULT_MATERIALS, MaterialStore } from './materials';
 import { ShipModel } from './model';
 import { validate } from './validation';
 import { exportShipJson, importShipJson, type ExtraSpec } from './io';
@@ -77,36 +77,9 @@ describe('validation with an extended registry', () => {
   });
 });
 
-describe('SurfaceStore', () => {
-  it('defaults, patch, diff, reset', () => {
-    const s = new SurfaceStore();
-    expect(s.get('craftHull.bmp')).toEqual(
-      { normalScale: 0.5, roughnessK: 1, metalnessK: 1, envIntensity: 1, tint: true });
-    expect(s.get('system_colors.png').tint).toBe(false);   // engine palette stays full-colour
-    expect(s.diff()).toBeUndefined();
-    s.patch('craftHull.bmp', { normalScale: 1.2, roughnessK: 0.8 });
-    expect(s.diff()).toEqual({
-      'craftHull.bmp': { normalScale: 1.2, roughnessK: 0.8, metalnessK: 1, envIntensity: 1, tint: true },
-    });
-    s.reset('craftHull.bmp');
-    expect(s.diff()).toBeUndefined();
-  });
-
-  it('io: surfaces embed in export and reload', () => {
-    const s = new SurfaceStore();
-    s.patch('panel_tech_1.bmp', { envIntensity: 1.5 });
-    const doc = importShipJson({ cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }] }, 't');
-    doc.surfaces = s.diff();
-    const out = exportShipJson(doc, Array.from({ length: 24 }, () =>
-      Array.from({ length: 7 }, () => ({ o: 0, p: 0, f: 0 })))) as {
-        surfaces?: Record<string, unknown> };
-    expect(out.surfaces).toEqual(doc.surfaces);
-    const back = importShipJson(out, 't');
-    const s2 = new SurfaceStore();
-    s2.load(back.surfaces);
-    expect(s2.get('panel_tech_1.bmp').envIntensity).toBe(1.5);
-  });
-});
+/* SurfaceStore's per-texture response coverage moved with the store itself:
+   mesh-mode materials are library-driven now — see materials.test.ts
+   (AssignmentStore) and library.test.ts (MaterialLibrary). */
 
 describe('extras round-trip', () => {
   const extras: ExtraSpec[] = [

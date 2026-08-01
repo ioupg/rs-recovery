@@ -223,17 +223,25 @@ snapping replaced it). Controls: **MMB or Alt+LMB** orbit, **RMB** pan,
 drag to orbit, ⌂ fits. (A selection rotation gizmo was tried and dropped
 by user decision — rotation lives on X/C/V + the panel buttons.)
 
-### Surface textures + per-face plates (v2)
+### PBR materials + per-face plates (v2)
 
-`SurfaceStore` (core/materials.ts) holds one `SurfaceDef` per archive texture
-(normalScale, roughnessK/metalnessK multipliers over the slot material,
-envIntensity, tint); `MaterialCache` applies it live and `exportShipJson`
-embeds the diff as `surfaces`. `Cube.plateKinds` (7 registry ids parallel to
-slots) selects a per-face plate mesh; the geometry builder resolves it
-through `data.plates` with face-type matching, and the Plates tool mounts /
-swaps / removes with the panel's visual picker. The Systems (naked) view
-shows plain cages tinted per system when the tint toggle is on; toggling it
-off restores the authentic untinted `system_colors` palette.
+Mesh mode renders library-driven PBR. **MaterialLibrary** (core/library.ts)
+is the app-level registry: legacy wraps of the 14 archive textures (id = texture
+name) plus curated entries from materials/materials.json, with browser-local
+tweaks overlaid and persisted to localStorage. **AssignmentStore** (core/materials.ts)
+is a per-ship sparse map of texture name → library material id (default:
+identity). MaterialCache resolves mesh-mode triangles grouped by (slot, archive
+texture name) through `assignments.get(name)` to a library id, then renders
+the library material with library-driven PBR (maps, normals, metalness, roughness,
+envIntensity, etc.); `exportShipJson` embeds the diff as `assignments` (old
+`surfaces` key ignored on import). Map-less modes (plate/atlas/schematic) keep
+the MaterialStore slot-def behavior unchanged (color/roughness/metalness/
+emissive/clearcoat from per-slot defs, atlas texture when textured). `Cube.plateKinds`
+(7 registry ids parallel to slots) selects a per-face plate mesh; the geometry
+builder resolves it through `data.plates` with face-type matching, and the Plates
+tool mounts / swaps / removes with the panel's visual picker. The Systems (naked)
+view renders system cages over a translucent hull silhouette (no cage tinting
+— cages are untinted by design).
 
 ### scene.ts
 

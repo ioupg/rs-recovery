@@ -1,0 +1,230 @@
+/* Material library browser — modal card grid + orbitable preview + tweak
+   sliders over the SELECTED library material, opened from the "Materials"
+   assignment rows (panels/materials.ts) to reassign a texture, or standalone
+   to just browse/tune the library. Built fresh per call (no persistent
+   instance to own) and torn down on close, unlike the load-template modal
+   which is built once at startup and only hidden. */
+
+import type { UiContext } from './context';
+import type { LibMaterial } from '../core/types';
+import { MaterialPreview, renderMaterialThumb } from '../render/shapePreview';
+import { subscribeTextureLoads } from '../render/textureCache';
+import { button, h } from './dom';
+
+const shortName = (name: string): string => name.replace(/\.(bmp|png|jpg)$/i, '');
+
+function slider(label: string, min: number, max: number, step: number):
+    { row: HTMLLabelElement; input: HTMLInputElement; val: HTMLSpanElement } {
+  const row = document.createElement('label');
+  row.append(label);
+  const input = document.createElement('input');
+  input.type = 'range'; input.min = String(min); input.max = String(max); input.step = String(step);
+  const val = h('span', 'val');
+  row.append(input, val);
+  return { row, input, val };
+}
+
+export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string } = {}): void {
+  const entries = ctx.library.all();
+  if (!entries.length) return; // nothing curated yet — defensive, shouldn't happen
+
+  let selectedId = opts.assignFor ? ctx.assignments.get(opts.assignFor) : entries[0].id;
+  if (!ctx.library.byId(selectedId)) selectedId = entries[0].id;
+
+  /* ── chrome (loadModal idiom) ── */
+  const backdrop = h('div', 'modal-backdrop');
+  const modal = h('div', 'modal matlib-modal');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-label', 'Material library');
+
+  const head = h('div', 'modal-head');
+  head.append(h('h2', undefined,
+    opts.assignFor ? `Assign material — ${shortName(opts.assignFor)}` : 'Material library'));
+  const closeBtn = h('button', 'modal-close', '✕');
+  closeBtn.type = 'button';
+  closeBtn.title = 'Close (Esc)';
+  head.append(closeBtn);
+  modal.append(head);
+
+  const body = h('div', 'modal-body matlib-body');
+
+  /* ── left: card grid ── */
+  const grid = h('div', 'matlib-grid');
+  const cards = new Map<string, { btn: HTMLButtonElement; img: HTMLImageElement }>();
+  for (const m of entries) {
+    const card = h('button', 'item-btn matlib-card');
+    card.type = 'button';
+    const img = document.createElement('img');
+    img.alt = m.name;
+    img.src = renderMaterialThumb(m);
+    card.append(img, h('span', 'item-name', m.name));
+    if (m.legacy) card.append(h('span', 'matlib-badge', 'archive'));
+    card.onclick = () => selectCard(m.id);
+    cards.set(m.id, { btn: card, img });
+    grid.append(card);
+  }
+  body.append(grid);
+
+  /* ── right: orbitable preview + tweaks ── */
+  const right = h('div', 'matlib-right');
+
+  const previewWrap = h('div', 'matlib-preview');
+  const canvas = document.createElement('canvas');
+  canvas.className = 'matlib-canvas';
+  canvas.width = 260;
+  canvas.height = 260;
+  const shapeToggle = h('div', 'seg matlib-shape');
+  const sphereBtn = button('sphere');
+  const cubeBtn = button('cube');
+  shapeToggle.append(sphereBtn, cubeBtn);
+  previewWrap.append(canvas, shapeToggle);
+  right.append(previewWrap);
+
+  const preview = new MaterialPreview(canvas);
+  const setShape = (s: 'sphere' | 'cube'): void => {
+    preview.setShape(s);
+    sphereBtn.classList.toggle('active', s === 'sphere');
+    cubeBtn.classList.toggle('active', s === 'cube');
+  };
+  sphereBtn.onclick = () => setShape('sphere');
+  cubeBtn.onclick = () => setShape('cube');
+
+  const tweaks = h('div', 'mat-body matlib-tweaks');
+
+  const colorRow = document.createElement('label');
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorRow.append('color', colorInput);
+  tweaks.append(colorRow);
+
+  const roughness = slider('roughness', 0, 1, 0.01);
+  const metalness = slider('metalness', 0, 1, 0.01);
+  const normalScale = slider('normal strength', 0, 2, 0.01);
+  const envIntensity = slider('reflections', 0, 2, 0.01);
+  tweaks.append(roughness.row, metalness.row, normalScale.row, envIntensity.row);
+
+  const emissiveRow = document.createElement('label');
+  const emissiveInput = document.createElement('input');
+  emissiveInput.type = 'color';
+  emissiveRow.append('emissive', emissiveInput);
+  const emissiveIntensity = slider('emissive intensity', 0, 2, 0.01);
+  tweaks.append(emissiveRow, emissiveIntensity.row);
+
+  const clearcoat = slider('clearcoat', 0, 1, 0.01);
+  const clearcoatRoughness = slider('clearcoat rough.', 0, 1, 0.01);
+  tweaks.append(clearcoat.row, clearcoatRoughness.row);
+
+  const uvScale = slider('UV scale', 0.1, 8, 0.05);
+  const uvRotation = slider('UV rotation', 0, 360, 1);
+  tweaks.append(uvScale.row, uvRotation.row);
+
+  right.append(tweaks);
+
+  const actions = h('div', 'matlib-actions');
+  const assignBtn = opts.assignFor ? button('Assign') : null;
+  const resetBtn = button('Reset');
+  const exportBtn = button('Export library');
+  const closeActionBtn = button('Close');
+  if (assignBtn) actions.append(assignBtn);
+  actions.append(resetBtn, exportBtn, closeActionBtn);
+  right.append(actions);
+
+  body.append(right);
+  modal.append(body);
+  backdrop.append(modal);
+  document.body.append(backdrop);
+
+  /* ── wiring ── */
+  const currentMat = (): LibMaterial => ctx.library.byId(selectedId) ?? entries[0];
+
+  const refreshTweaks = (): void => {
+    const m = currentMat();
+    colorInput.value = m.color;
+    emissiveInput.value = m.emissive;
+    const set = (s: { input: HTMLInputElement; val: HTMLSpanElement }, v: number, digits = 2): void => {
+      s.input.value = String(v);
+      s.val.textContent = v.toFixed(digits);
+    };
+    set(roughness, m.roughness);
+    set(metalness, m.metalness);
+    set(normalScale, m.normalScale);
+    set(envIntensity, m.envIntensity);
+    set(emissiveIntensity, m.emissiveIntensity);
+    set(clearcoat, m.clearcoat);
+    set(clearcoatRoughness, m.clearcoatRoughness);
+    set(uvScale, m.uvScale);
+    set(uvRotation, m.uvRotation, 0);
+  };
+
+  const refreshCardThumb = (id: string): void => {
+    const c = cards.get(id);
+    const m = ctx.library.byId(id);
+    if (c && m) c.img.src = renderMaterialThumb(m);
+  };
+
+  const selectCard = (id: string): void => {
+    selectedId = id;
+    for (const [cid, c] of cards) c.btn.classList.toggle('active', cid === id);
+    refreshTweaks();
+    preview.update(currentMat());
+  };
+
+  const patch = (p: Partial<LibMaterial>): void => ctx.library.patch(selectedId, p);
+
+  colorInput.oninput = () => patch({ color: colorInput.value });
+  emissiveInput.oninput = () => patch({ emissive: emissiveInput.value });
+  roughness.input.oninput = () => patch({ roughness: Number(roughness.input.value) });
+  metalness.input.oninput = () => patch({ metalness: Number(metalness.input.value) });
+  normalScale.input.oninput = () => patch({ normalScale: Number(normalScale.input.value) });
+  envIntensity.input.oninput = () => patch({ envIntensity: Number(envIntensity.input.value) });
+  emissiveIntensity.input.oninput = () => patch({ emissiveIntensity: Number(emissiveIntensity.input.value) });
+  clearcoat.input.oninput = () => patch({ clearcoat: Number(clearcoat.input.value) });
+  clearcoatRoughness.input.oninput = () => patch({ clearcoatRoughness: Number(clearcoatRoughness.input.value) });
+  uvScale.input.oninput = () => patch({ uvScale: Number(uvScale.input.value) });
+  uvRotation.input.oninput = () => patch({ uvRotation: Number(uvRotation.input.value) });
+
+  /* library/texture-load changes (ours or external) keep preview, sliders and
+     the selected card's thumb in sync */
+  const unsubLib = ctx.library.subscribe(() => {
+    refreshTweaks();
+    preview.update(currentMat());
+    refreshCardThumb(selectedId);
+  });
+  const unsubTex = subscribeTextureLoads(() => {
+    preview.update(currentMat());
+    for (const id of cards.keys()) refreshCardThumb(id);
+  });
+
+  resetBtn.onclick = () => ctx.library.reset(selectedId);
+  exportBtn.onclick = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([ctx.library.exportJson()], { type: 'application/json' }));
+    a.download = 'materials.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  if (assignBtn) assignBtn.onclick = () => {
+    ctx.assignments.assign(opts.assignFor!, selectedId);
+    close();
+  };
+
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+  };
+  function close(): void {
+    unsubLib();
+    unsubTex();
+    preview.dispose();
+    window.removeEventListener('keydown', onKey, true);
+    backdrop.remove();
+  }
+
+  closeBtn.onclick = close;
+  closeActionBtn.onclick = close;
+  backdrop.onclick = e => { if (e.target === backdrop) close(); };
+  window.addEventListener('keydown', onKey, true);
+
+  selectCard(selectedId);
+  setShape('sphere');
+  modal.focus();
+}

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { computeSlotDefaults } from '../data/loader';
 import type { ShipEntry } from '../data/loader';
 import { exportShipJson, importShip, importShipJson } from './io';
@@ -112,6 +112,57 @@ describe('exportShipJson — archive field regeneration', () => {
     expect(exported[1].variant).toBe(0);
     expect(exported[1].counter).toBe(501); // max preserved counter (500) + 1
     expect(exported[1].slots).toEqual(slotDefaults[1]);
+  });
+});
+
+describe('assignments (mesh-mode texture-name → library-material-id remaps)', () => {
+  it('round-trips through importShipJson → exportShipJson → importShipJson', () => {
+    const doc = importShipJson({
+      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }],
+      assignments: { 'craftHull.bmp': 'brushed-steel' },
+    }, 'ship');
+    expect(doc.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+
+    const exported = exportShipJson(doc, emptySlotDefaults()) as { assignments?: Record<string, string> };
+    expect(exported.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+
+    const back = importShipJson(exported, 'ship');
+    expect(back.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+  });
+
+  it('is absent from the doc and omitted from export when the ship JSON has none', () => {
+    const doc = importShipJson({ cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }] }, 'ship');
+    expect(doc.assignments).toBeUndefined();
+    const exported = exportShipJson(doc, emptySlotDefaults()) as { assignments?: unknown };
+    expect('assignments' in exported).toBe(false);
+  });
+});
+
+describe('legacy "surfaces" tuning (pre-library era, obsolete)', () => {
+  it('imports fine and yields no assignments/surfaces on the doc', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const doc = importShipJson({
+      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }],
+      surfaces: { 'craftHull.bmp': { envIntensity: 1.5, tint: false } },
+    }, 'ship');
+    expect(doc.assignments).toBeUndefined();
+    expect('surfaces' in doc).toBe(false);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    infoSpy.mockRestore();
+  });
+
+  it('a doc carrying both legacy surfaces and new assignments keeps only assignments', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const doc = importShipJson({
+      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }],
+      surfaces: { 'craftHull.bmp': { envIntensity: 1.5 } },
+      assignments: { 'craftHull.bmp': 'brushed-steel' },
+    }, 'ship');
+    expect(doc.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+    expect('surfaces' in doc).toBe(false);
+    const exported = exportShipJson(doc, emptySlotDefaults()) as { surfaces?: unknown };
+    expect('surfaces' in exported).toBe(false);
+    infoSpy.mockRestore();
   });
 });
 
