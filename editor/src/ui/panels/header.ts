@@ -41,11 +41,13 @@ export function buildHeader(host: HTMLElement, ctx: UiContext): void {
     if (f) ctx.actions.importJsonFile(f);
     fileInput.value = '';
   };
-  const exportBtn = button('Save', { title: 'Export ship JSON' });
+  const saveBtn = button('Save', { title: 'Save design to browser storage (persists between sessions)' });
+  saveBtn.onclick = () => ctx.actions.saveLocal();
+  const exportBtn = button('Export', { title: 'Download ship JSON' });
   exportBtn.onclick = () => ctx.actions.exportJson();
   const glbBtn = button('GLB', { title: 'Export GLB model' });
   glbBtn.onclick = () => ctx.actions.exportGlb();
-  fileGroup.append(newBtn, loadBtn, importBtn, fileInput, exportBtn, glbBtn);
+  fileGroup.append(newBtn, loadBtn, importBtn, fileInput, saveBtn, exportBtn, glbBtn);
   host.append(fileGroup, divider());
 
   /* ── tools ── */

@@ -3,6 +3,7 @@
    ShipModel and MaterialStore subscriptions. */
 
 import { loadGameData } from './data/loader';
+import { deleteDesign, getDesign, listDesigns, saveDesign } from './data/localDesigns';
 import { ShipModel } from './core/model';
 import { History } from './core/history';
 import { buildDefaultMaterials, MaterialStore, SurfaceStore } from './core/materials';
@@ -79,6 +80,41 @@ async function init(): Promise<void> {
       download(`${model.doc.meta.name}.json`,
         JSON.stringify(exportShipJson(doc, data.slotDefaults), null, 1), 'application/json');
     },
+    saveLocal: () => {
+      const suggested = model.doc.meta.display || model.doc.meta.name;
+      const name = prompt('Save design as:', suggested)?.trim();
+      if (!name) return;
+      const doc: ShipDoc = {
+        ...model.doc,
+        meta: { ...model.doc.meta, name, display: name },
+        materials: materials.diff(),
+        surfaces: surfaces.diff(),
+      };
+      const existed = getDesign(name) !== undefined;
+      const ok = saveDesign({
+        name, display: name,
+        savedAt: new Date().toISOString(),
+        cubes: model.doc.cubes.length,
+        wings: model.doc.wings.length,
+        data: exportShipJson(doc, data.slotDefaults),
+      });
+      refs.setStatus(ok
+        ? `“${name}” ${existed ? 'overwritten in' : 'saved to'} browser storage`
+        : 'save failed — browser storage unavailable or full');
+      if (ok) model.setMeta({ name, display: name });
+    },
+    loadLocalDesign: (name) => {
+      const d = getDesign(name);
+      if (!d) { refs.setStatus(`no saved design “${name}”`); return; }
+      try {
+        loadDoc(importShipJson(d.data, name));
+        refs.setStatus(`loaded “${name}” from browser storage`);
+      } catch (e) {
+        refs.setStatus(`load failed: ${String(e)}`);
+      }
+    },
+    deleteLocalDesign: (name) => deleteDesign(name),
+    listLocalDesigns: () => listDesigns(),
     exportGlb: () => {
       exportGlb(sceneCtx.shipRoot, model.doc.meta.name)
         .catch(e => refs.setStatus(`GLB export failed: ${String(e)}`));

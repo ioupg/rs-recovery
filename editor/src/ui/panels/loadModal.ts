@@ -23,6 +23,40 @@ export function buildLoadModal(root: HTMLElement, ctx: UiContext): { open(): voi
   modal.append(head);
 
   const body = h('div', 'modal-body');
+
+  /* ── saved designs (browser storage) — rebuilt on every open ── */
+  const savedSection = h('div', 'saved-section');
+  body.append(savedSection);
+  const refreshSaved = (): void => {
+    savedSection.innerHTML = '';
+    const designs = ctx.actions.listLocalDesigns();
+    if (!designs.length) return;
+    savedSection.append(h('div', 'rank', 'saved designs — this browser'));
+    const grid = h('div', 'ship-grid');
+    for (const d of designs) {
+      const card = h('div', 'ship-card saved-card');
+      const b = h('button', 'saved-load');
+      b.type = 'button';
+      b.append(
+        h('span', 'nm', d.display),
+        h('span', 'cls', `${d.cubes} blocks · ${d.wings} wings · ${new Date(d.savedAt).toLocaleString()}`),
+      );
+      b.onclick = () => { ctx.actions.loadLocalDesign(d.name); close(); };
+      const del = h('button', 'saved-del', '✕');
+      del.type = 'button';
+      del.title = `Delete “${d.display}” from browser storage`;
+      del.onclick = e => {
+        e.stopPropagation();
+        if (!confirm(`Delete saved design “${d.display}”?`)) return;
+        ctx.actions.deleteLocalDesign(d.name);
+        refreshSaved();
+      };
+      card.append(b, del);
+      grid.append(card);
+    }
+    savedSection.append(grid);
+  };
+
   const byRank = new Map<string, { name: string; display: string; class: string; cubes: number }[]>();
   for (const [name, s] of Object.entries(ctx.data.ships)) {
     const list = byRank.get(s.rank) ?? [];
@@ -54,7 +88,7 @@ export function buildLoadModal(root: HTMLElement, ctx: UiContext): { open(): voi
   root.append(backdrop);
 
   const close = (): void => { backdrop.style.display = 'none'; };
-  const open = (): void => { backdrop.style.display = 'flex'; modal.focus(); };
+  const open = (): void => { refreshSaved(); backdrop.style.display = 'flex'; modal.focus(); };
 
   closeBtn.onclick = close;
   backdrop.onclick = e => { if (e.target === backdrop) close(); };

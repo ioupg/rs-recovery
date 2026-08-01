@@ -291,6 +291,11 @@ the first tab is contextual, renamed and activated with the tool:
 - **Plates** — plate mesh picker.
 
 Every tool page ends with its shortcut legend. Fleet loading is a modal
-(`panels/loadModal.ts`, ship cards grouped by rank) opened from the header.
+(`panels/loadModal.ts`, ship cards grouped by rank) opened from the header;
+a "saved designs — this browser" section on top lists localStorage saves
+(`data/localDesigns.ts`, key `rs.editor.designs.v1`, payload = the exported
+ship JSON so save/load shares the io path) with load + delete. Header Save =
+save to browser storage (prompted name, overwrite allowed); Export = JSON
+file download.
 Materials tab: slot list (from the systems registry) with color swatch +
 sliders. Info: ГОСТ-stamp ship card + system ledger + validation issues.

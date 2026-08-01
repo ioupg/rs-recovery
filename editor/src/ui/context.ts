@@ -5,6 +5,7 @@
 import type { ChangeKind, Cube, Issue, ShipDoc, Unsubscribe, Wing } from '../core/types';
 import type { MaterialStore, SurfaceStore } from '../core/materials';
 import type { GameData } from '../data/loader';
+import type { SavedDesign } from '../data/localDesigns';
 import type { EditorState } from '../editor/state';
 
 export interface HistoryLike {
@@ -28,6 +29,11 @@ export interface UiActions {
   importJsonFile(file: File): void;
   exportJson(): void;
   exportGlb(): void;
+  /** save the current design into browser localStorage (named, persistent) */
+  saveLocal(): void;
+  loadLocalDesign(name: string): void;
+  deleteLocalDesign(name: string): void;
+  listLocalDesigns(): SavedDesign[];
   fitView(): void;
   validateNow(): Issue[];
   /** open the "Load template design" modal */
