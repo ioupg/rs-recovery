@@ -4,8 +4,8 @@
    Renders on demand only — no animation loop. */
 
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { applyEnvironment, subscribeEnvironment } from './environment';
 import type { LibMaterial, ShapeId } from '../core/types';
 import { FACES, WING_RING, corner, rotDir } from '../core/tables';
 import { applyLibMaterial } from './libMaterial';
@@ -262,12 +262,11 @@ let thumbEnvBuilt = false;
 function ensureThumbEnv(t: ReturnType<typeof thumbCtx>): void {
   if (thumbEnvBuilt) return;
   thumbEnvBuilt = true;
-  const pmrem = new THREE.PMREMGenerator(t.renderer);
-  const envSource = new RoomEnvironment();
-  t.scene.environment = pmrem.fromScene(envSource, 0.04).texture;
+  applyEnvironment(t.renderer, t.scene);
   t.scene.environmentIntensity = 0.9;
-  envSource.dispose();
-  pmrem.dispose();
+  /* thumbnails are pulled by their consumers — this only keeps the shared
+     scene current; the environment change event tells consumers to re-pull */
+  subscribeEnvironment(() => applyEnvironment(t.renderer, t.scene));
 }
 
 /** one persistent sphere + material for every material thumbnail — a fresh
@@ -338,12 +337,13 @@ export class MaterialPreview {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
 
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const envSource = new RoomEnvironment();
-    this.scene.environment = pmrem.fromScene(envSource, 0.04).texture;
+    applyEnvironment(this.renderer, this.scene);
     this.scene.environmentIntensity = 0.9;
-    envSource.dispose();
-    pmrem.dispose();
+    /* singleton, never disposed — the subscription lives for the app */
+    subscribeEnvironment(() => {
+      applyEnvironment(this.renderer, this.scene);
+      this.render();
+    });
 
     this.scene.add(new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 1.0));
     const key = new THREE.DirectionalLight(0xfff2dc, 1.2);

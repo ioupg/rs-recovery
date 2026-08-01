@@ -5,7 +5,7 @@
    and the space-mode extras, which the editor doesn't use. */
 
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { applyEnvironment, subscribeEnvironment } from './environment';
 import type { Vec3 } from '../core/types';
 
 export interface SceneCtx {
@@ -30,13 +30,10 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   scene.background = new THREE.Color(0x0a0e14);
   // no fog — editor wants a flat, legible background at any zoom
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envSource = new RoomEnvironment();
-  const envMap = pmrem.fromScene(envSource, 0.04).texture;
-  scene.environment = envMap;
+  applyEnvironment(renderer, scene);
   scene.environmentIntensity = 0.35;
-  envSource.dispose();
-  pmrem.dispose();
+  /* the main loop renders every frame, so an env swap shows up by itself */
+  const unsubEnv = subscribeEnvironment(() => applyEnvironment(renderer, scene));
 
   const hemi = new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 0.9);
   scene.add(hemi);
@@ -93,11 +90,12 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   }
 
   function dispose(): void {
+    unsubEnv();
     floor.geometry.dispose();
     (floor.material as THREE.Material).dispose();
     grid.geometry.dispose();
     (grid.material as THREE.Material).dispose();
-    envMap.dispose();
+    // the environment texture is owned by the environment.ts cache
     renderer.dispose();
   }
 

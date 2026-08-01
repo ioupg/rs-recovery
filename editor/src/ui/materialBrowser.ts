@@ -7,6 +7,7 @@
 
 import type { UiContext } from './context';
 import type { LibMaterial } from '../core/types';
+import { ENVIRONMENTS, currentEnvironment, setEnvironment, subscribeEnvironment } from '../render/environment';
 import { acquireMaterialPreview, renderMaterialThumb } from '../render/shapePreview';
 import { subscribeTextureLoads } from '../render/textureCache';
 import { button, h } from './dom';
@@ -90,7 +91,19 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   const sphereBtn = button('sphere');
   const cubeBtn = button('cube');
   shapeToggle.append(sphereBtn, cubeBtn);
-  previewWrap.append(canvas, shapeToggle);
+  /* IBL environment — app-global: the viewport and every thumbnail follow */
+  const envSelect = document.createElement('select');
+  envSelect.className = 'matlib-env';
+  envSelect.title = 'reflection environment (applies to the whole editor)';
+  for (const e of ENVIRONMENTS) {
+    const o = document.createElement('option');
+    o.value = e.id;
+    o.textContent = e.name;
+    envSelect.append(o);
+  }
+  envSelect.value = currentEnvironment();
+  envSelect.onchange = () => setEnvironment(envSelect.value);
+  previewWrap.append(canvas, shapeToggle, envSelect);
   right.append(previewWrap);
   const setShape = (s: 'sphere' | 'cube'): void => {
     preview.setShape(s);
@@ -264,6 +277,12 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
       if (m && usesUrl(m, url)) scheduleCardThumb(id);
     }
   });
+  /* env selection (or a landed HDR swap) changes every thumb's lighting;
+     the preview re-renders itself via its own subscription */
+  const unsubEnv = subscribeEnvironment(() => {
+    envSelect.value = currentEnvironment();
+    for (const id of cards.keys()) scheduleCardThumb(id);
+  });
 
   resetBtn.onclick = () => ctx.library.reset(selectedId);
   exportBtn.onclick = () => {
@@ -290,6 +309,7 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   function close(): void {
     unsubLib();
     unsubTex();
+    unsubEnv();
     if (thumbRaf) cancelAnimationFrame(thumbRaf);
     window.removeEventListener('keydown', onKey, true);
     backdrop.remove();   // detaches the singleton preview canvas with it

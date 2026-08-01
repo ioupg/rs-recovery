@@ -158,3 +158,22 @@ Source height maps were dropped (no height/displacement slot in LibMaterialMaps)
 6. Tweak scalars (roughness, metalness, normal strength, etc.) in the preview.
 7. Click "Export library" to download the updated materials.json (dense
    normalized form, version-stamped) and commit it.
+
+## 5. IBL environments (added 2026-08-01)
+
+`env/` holds equirect Radiance `.hdr` reflection environments, copied to
+`public/env/` by the vite plugin and served through `render/environment.ts`
+(registry, per-renderer PMREM cache, app-global persisted selection — picker
+sits under the material-browser preview; the main viewport and every
+thumbnail follow). The built-in three.js RoomEnvironment remains the default
+and the offline fallback.
+
+Shipped maps, all 1K (PMREM's top mip is a 256px cube — higher res is waste):
+
+- `studio_small_08_1k.hdr`, `machine_shop_02_1k.hdr`, `venice_sunset_1k.hdr`
+  — Poly Haven, CC0 (polyhaven.com).
+- `nasa_starmap_2020_1k.hdr` — NASA SVS Deep Star Map 2020 (public domain,
+  svs.gsfc.nasa.gov/4851), converted from the 4K EXR via ImageMagick
+  (2048→1024 Lanczos, Radiance HDR). Near-black by design: star fields carry
+  little energy, so metals read from the editor lights plus the Milky Way
+  streak — pick Studio to inspect materials, Space for the in-fiction look.

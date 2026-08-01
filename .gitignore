@@ -38,3 +38,5 @@ editor/public/materials/
 
 # PBR texture source drops (raw 2K sources; ingested into materials/ at 1K)
 _textures/
+# editor: IBL environment mirror (copied from env/ by the vite plugin)
+editor/public/env/

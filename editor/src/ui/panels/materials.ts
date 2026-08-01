@@ -7,6 +7,7 @@
 import type { UiContext } from '../context';
 import type { LibMaterial, MaterialDef, MaterialSlot } from '../../core/types';
 import { collectTextureNames } from '../../data/loader';
+import { subscribeEnvironment } from '../../render/environment';
 import { renderMaterialThumb } from '../../render/shapePreview';
 import { subscribeTextureLoads } from '../../render/textureCache';
 import { openMaterialBrowser } from '../materialBrowser';
@@ -112,6 +113,9 @@ function buildAssignmentSection(host: HTMLElement, ctx: UiContext): void {
   ctx.assignments.subscribe(refreshChanged);
   ctx.library.subscribe(refreshChanged);
   subscribeTextureLoads(onTextureLoad);
+  /* an environment change relights every thumb: same defs, new pixels —
+     the dirty-key check would skip them, so schedule all cells directly */
+  subscribeEnvironment(() => { for (const c of cells) schedule(c.name); });
 }
 
 /** the box/facet/plate/systems-view slot palette — unchanged behavior,

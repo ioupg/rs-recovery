@@ -54,6 +54,11 @@ function rsDataPlugin(): Plugin {
     const matSrc = resolve(root, '../materials');
     if (existsSync(matSrc))
       cpSync(matSrc, resolve(root, 'public/materials'), { recursive: true });
+    /* IBL environment HDRIs (render/environment.ts registry); absence
+       tolerated — the editor then falls back to the built-in room env */
+    const envSrc = resolve(root, '../env');
+    if (existsSync(envSrc))
+      cpSync(envSrc, resolve(root, 'public/env'), { recursive: true });
   };
   return {
     name: 'rs-data',

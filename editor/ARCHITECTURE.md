@@ -35,7 +35,7 @@ src/core/    types.ts tables.ts materials.ts systems.ts library.ts   (read them 
 src/data/    loader.ts plates.ts libraryStore.ts
 src/render/  scene.ts materialCache.ts textureCache.ts geometry.ts ao.ts
              atlas.ts facets.ts pick.ts shipView.ts viewports.ts viewCube.ts
-             shapePreview.ts exportGlb.ts libMaterial.ts
+             shapePreview.ts exportGlb.ts libMaterial.ts environment.ts
 src/editor/  state.ts tools.ts controller.ts symmetryExpand.ts
 src/ui/      style.css ui.ts context.ts dom.ts materialBrowser.ts panels/*.ts
 src/main.ts  (integration)
@@ -253,10 +253,14 @@ material wearing the authentic palette texture (shipView.ts rebuild()).
 
 ### scene.ts
 
-Renderer (antialias, shadows PCFSoft), `THREE.RoomEnvironment` PMREM as
-`scene.environment` (PBR needs it), hemisphere + key directional (shadow) + rim
-per viewer 484-495, grid + floor per 497-504, background #0A0E14, fog off in
-ortho views (leave fog out entirely for the editor).
+Renderer (antialias, shadows PCFSoft); IBL via `render/environment.ts` — an
+app-global selectable environment (built-in RoomEnvironment plus the CC0/PD
+HDRIs under `env/`, PMREM cached per renderer since render targets are
+GL-context-bound; selection persisted to `rs.editor.env.v1`, picked in the
+material browser, followed by the viewport and every preview/thumb scene);
+hemisphere + key directional (shadow) + rim per viewer 484-495, grid + floor
+per 497-504, background #0A0E14, fog off in ortho views (leave fog out
+entirely for the editor).
 
 ### exportGlb.ts
 
