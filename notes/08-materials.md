@@ -174,6 +174,7 @@ Shipped maps, all 1K (PMREM's top mip is a 256px cube — higher res is waste):
   — Poly Haven, CC0 (polyhaven.com).
 - `nasa_starmap_2020_1k.hdr` — NASA SVS Deep Star Map 2020 (public domain,
   svs.gsfc.nasa.gov/4851), converted from the 4K EXR via ImageMagick
-  (2048→1024 Lanczos, Radiance HDR). Near-black by design: star fields carry
-  little energy, so metals read from the editor lights plus the Milky Way
-  streak — pick Studio to inspect materials, Space for the in-fiction look.
+  (2048→1024 Lanczos, Radiance HDR) and exposure-boosted ~×10 (mean
+  luminance 0.16 vs the studio map's 0.59): the raw star field is so dark
+  that reflections vanished. Still the moody option — pick Studio to
+  inspect materials, Space for the in-fiction look.
