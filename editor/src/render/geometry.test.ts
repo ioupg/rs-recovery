@@ -161,6 +161,39 @@ describe('buildShipGeometry', () => {
   });
 });
 
+describe('flush mounting (the engine scheme — no insets, no margins)', () => {
+  it('a mounted plate spans its face exactly, back on the face plane, relief outward', () => {
+    /* o=0 cube at origin: slot orientation 0 decorates the z=0 face, so the
+       mounted plate must cover [0,1]x[0,1] with its back at z=0 and every
+       relief vertex strictly outside the cell (z < 0) */
+    const pos = mountedPlatePositions(
+      { x: 0, y: 0, z: 0, o: 0, shape: 0 }, 0, data,
+      { quad: 0, slope: 0, tri: 0, eq: 0 })!;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < pos.length; i += 3) {
+      minX = Math.min(minX, pos[i]); maxX = Math.max(maxX, pos[i]);
+      minY = Math.min(minY, pos[i + 1]); maxY = Math.max(maxY, pos[i + 1]);
+      minZ = Math.min(minZ, pos[i + 2]); maxZ = Math.max(maxZ, pos[i + 2]);
+    }
+    expect(minX).toBeCloseTo(0, 5); expect(maxX).toBeCloseTo(1, 5);
+    expect(minY).toBeCloseTo(0, 5); expect(maxY).toBeCloseTo(1, 5);
+    expect(maxZ).toBeCloseTo(0, 5);           // mounting back in the face plane
+    expect(minZ).toBeLessThan(0);             // relief stands out of the hull
+  });
+
+  it('mesh mode emits no filler: triangle count is exactly shells+cages+plates+wings+skins', () => {
+    /* the bare doc with plates and wings off reduces to shells + cages only —
+       every triangle must come from an archive part, all cell-authored */
+    const built = buildShipGeometry(doc, data, opts({ mode: 'mesh', plates: false }));
+    const shellTris = doc.cubes.reduce(
+      (s, c) => s + (data.shapeMesh[String(c.shape)]?.sub.reduce((a, m) => a + m.idx.length / 3, 0) ?? 0), 0);
+    const cageTris = doc.cubes.reduce(
+      (s, c) => s + (data.moduleMesh[c.comp]?.sub.reduce((a, m) => a + (m.nrm ? m.idx.length / 3 : 0), 0) ?? 0), 0);
+    expect(built.geometry.getAttribute('position').count / 3).toBe(shellTris + cageTris);
+  });
+});
+
 describe('per-face plate mesh override', () => {
   const cube = { x: 0, y: 0, z: 0, o: 0, shape: 0 };
   /* orientation mounting a plate on some face of an o=0 cube */

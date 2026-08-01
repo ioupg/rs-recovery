@@ -162,17 +162,12 @@ const COMP = {
 };
 const HULL_ID = 8;
 const WING_COLOR = 0x51636F;
-/* plates drop into the open window each hull shell leaves on its face; the
-   window is measured from the mesh at decode time. The margin just keeps the
-   plate edge off the rim so the two never fight for the same pixels. */
-const PLATE_MARGIN = .985;
-/* The hull shapes are shells, so without a backing you see straight through the
-   window of any face whose plate does not cover it. The filler is the plain
-   culled hull pushed a little way inside, which blocks the view without ever
-   reaching the surface the detail meshes occupy. */
-const FILL_INSET = .045;
-/* interior module cage, shrunk to clear the shell it sits inside */
-const MODULE_SCALE = .88;
+/* Flush composition (the engine's own scheme, measured from the =default
+   parts): every part is authored exactly in the unit cell and mates exactly on
+   the cell boundary planes — plate backs and shell rims lie in the face
+   planes, cages mount full size. The parts mesh renders FrontSide and
+   coincident surfaces always face opposite ways, so nothing z-fights and
+   nothing needs an inset, margin or scale factor. */
 
 /* faces per shape as corner-index loops (validated vs exe plate tables) */
 const FACES = {
@@ -730,21 +725,21 @@ function buildShip(name, keepView) {
         }
       }
     }
-    /* interior module cage per cube — the machinery you see through the window.
-       Cage-to-system mapping is not recoverable, so cages are handed out by
-       compartment id over the family in a stable order. */
+    /* interior module cage per cube, full size — the machinery you see through
+       the window. Every cube carries one: plain hull owns the m1*slot frame,
+       and the cage behind the window is what makes an open face leak-free
+       (the engine never had a filler). */
     if (typeof MODULE_MESH !== 'undefined' && MODULE_MESH.length) {
       for (const cb of ship.cubes) {
-        if (cb.comp === HULL_ID) continue;              // plain hull carries none
         const mm = MODULE_MESH[cb.comp % MODULE_MESH.length];
         const M = ORIENTATIONS[cb.o];
         const own = `${cb.x},${cb.y},${cb.z}`;
         const c = compColorOn ? new THREE.Color(COMP[cb.comp].c)
                               : new THREE.Color(COMP[HULL_ID].c);
         for (const sm3 of mm.sub) for (const i of sm3.idx) {
-          const p0 = [(sm3.pos[i*3]-.5)*MODULE_SCALE,
-                      (sm3.pos[i*3+1]-.5)*MODULE_SCALE,
-                      (sm3.pos[i*3+2]-.5)*MODULE_SCALE];
+          const p0 = [sm3.pos[i*3]-.5,
+                      sm3.pos[i*3+1]-.5,
+                      sm3.pos[i*3+2]-.5];
           const w = [M[0]*p0[0]+M[1]*p0[1]+M[2]*p0[2]+.5+cb.x,
                      M[3]*p0[0]+M[4]*p0[1]+M[5]*p0[2]+.5+cb.y,
                      M[6]*p0[0]+M[7]*p0[1]+M[8]*p0[2]+.5+cb.z];
@@ -755,33 +750,6 @@ function buildShip(name, keepView) {
           pos.push(...w); nrm.push(...n);
           const a3 = (aoOn ? vertexAO(w, n, occ2, own) : 1) * .78;
           col.push(c.r*a3, c.g*a3, c.b*a3);
-        }
-      }
-    }
-
-    /* filler: the procedural hull, offset inward, sitting behind everything */
-    {
-      const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
-      const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
-      const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
-      for (const f of kept) {
-        let n = norm(cross(norm(sub(f.verts[1],f.verts[0])), sub(f.verts[2],f.verts[0])));
-        const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
-                           .map(x=>x/f.verts.length);
-        n = orient(n, cen, f, occ2);
-        const vs = f.verts.map(v => [v[0]-n[0]*FILL_INSET,
-                                     v[1]-n[1]*FILL_INSET,
-                                     v[2]-n[2]*FILL_INSET]);
-        /* emit triangles wound with the outward normal, whichever way the loop
-           runs, so the explicit normal is not flipped by double-sided shading */
-        const w0 = cross(sub(vs[1],vs[0]), sub(vs[2],vs[0]));
-        const rev = w0[0]*n[0]+w0[1]*n[1]+w0[2]*n[2] < 0;
-        const base = compColorOn ? new THREE.Color(COMP[f.comp].c)
-                                 : new THREE.Color(COMP[HULL_ID].c);
-        for (let i=1; i<vs.length-1; i++) for (const k of (rev ? [0,i+1,i] : [0,i,i+1])) {
-          pos.push(...vs[k]); nrm.push(...n);
-          const a2 = (aoOn ? vertexAO(vs[k], n, occ2, null) : 1) * .55;
-          col.push(base.r*a2, base.g*a2, base.b*a2);
         }
       }
     }
@@ -836,14 +804,9 @@ function buildShip(name, keepView) {
         const fv = (nw[0]*n[0]+nw[1]*n[1]+nw[2]*n[2] < 0)
                  ? f.verts.slice().reverse() : f.verts;
         const v0 = fv[0], E1 = sub(fv[1], v0), E2 = sub(fv[2], v0);
-        /* solve the plate's local outline onto this facet */
+        /* solve the plate's local outline onto this facet — full size: the
+           plate covers the whole face, rim included, the engine's way */
         const [a0,a1,a2] = pm.outline;
-        /* shrink the plate about its own centre: at full size it covers the whole
-           face and hides the frame it is supposed to be bolted onto */
-        const oc = pm.outline.reduce((s,p)=>[s[0]+p[0], s[1]+p[1]],[0,0])
-                             .map(v=>v/pm.outline.length);
-        const sm2 = SHAPE_MESH[f.shape];
-        const k = ((sm2 && sm2.window) || 1) * PLATE_MARGIN;
         const d1=[a1[0]-a0[0], a1[1]-a0[1]], d2=[a2[0]-a0[0], a2[1]-a0[1]];
         const det = d1[0]*d2[1] - d1[1]*d2[0];
         if (!det) continue;
@@ -852,8 +815,8 @@ function buildShip(name, keepView) {
         for (const s of pm.sub)
         for (let t=0; t<s.idx.length; t+=3)
         for (const i of [s.idx[t], s.idx[t+2], s.idx[t+1]]) {
-          const lx = oc[0] + (s.pos[i*3]  -oc[0])*k - a0[0],
-                ly = oc[1] + (s.pos[i*3+1]-oc[1])*k - a0[1],
+          const lx = s.pos[i*3]   - a0[0],
+                ly = s.pos[i*3+1] - a0[1],
                 lz = -s.pos[i*3+2];
           const t1 = ( lx*d2[1] - ly*d2[0]) / det;
           const t2 = (-lx*d1[1] + ly*d1[0]) / det;
@@ -877,8 +840,11 @@ function buildShip(name, keepView) {
     gp.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
     gp.setAttribute('normal', new THREE.Float32BufferAttribute(nrm,3));
     gp.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+    /* FrontSide is the flush-composition contract: coplanar mating surfaces
+       (plate back vs rim, rim vs neighbouring rim) face opposite ways and
+       resolve by winding — DoubleSide would z-fight them all */
     meshSolid = new THREE.Mesh(gp, new THREE.MeshStandardMaterial({
-      vertexColors:true, side:THREE.DoubleSide, roughness:.72, metalness:.14}));
+      vertexColors:true, side:THREE.FrontSide, roughness:.72, metalness:.14}));
     meshSolid.castShadow = meshSolid.receiveShadow = true;
     gp.userData = {col, colHull:col, ao:null};
     group.add(meshSolid);

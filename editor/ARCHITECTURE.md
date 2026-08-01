@@ -14,10 +14,18 @@ viewer (`../viewer`). Build: `npm run build` → `../viewer/editor` (deployed by
 - Strict TS, no `any` unless unavoidable. Match existing code style (comment sparsely,
   state constraints not narration).
 - Reference implementation for all geometry ports: `../viewer/index.html`
-  (AO 213-249, orient 258-264, chamfer 266-363, atlas 370-470, facet collect+cull
-  763-798, mesh-mode shells 800-860 / filler 861-886 / plates 887-953, plate-mode
-  974-1051, wings 1053-1096). Port faithfully — this code embodies validated
-  reverse-engineering; deviations cost days before.
+  (AO, orient, atlas, facet collect+cull, mesh-mode shells/cages/plates,
+  plate-mode, wings — the two implementations stay in lockstep). Port
+  faithfully — this code embodies validated reverse-engineering; deviations
+  cost days before.
+- Flush composition contract (2026-07-31, measured from the =default parts):
+  every archive part is authored in the unit cell and mates exactly on the
+  cell boundary planes — plate backs and shell rims lie in the face planes,
+  cages mount full size. Mesh mode renders FrontSide, and coincident surfaces
+  always face opposite ways, so nothing z-fights and nothing needs an inset,
+  margin, or scale factor. Do not reintroduce PLATE_MARGIN / FILL_INSET /
+  MODULE_SCALE-style constants; if a fight appears, the geometry or winding
+  is wrong, not the mounting.
 
 ## Module map
 
@@ -164,10 +172,11 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   normals, AO in vertex color when on. No chamfer/atlas/plates. Wings included
   (slot 'wing'). This is the fast editing mode.
 - **plate**: box + chamfer(0.07) + atlas UVs + facet tone jitter (viewer 974-1051).
-- **mesh**: shells + interior modules + inset filler + decoration plates + wings
-  (viewer 800-953). Module/filler/plate brightness factors (0.78/0.55/1.06) bake
-  into vertex color. `window` scale + PLATE_MARGIN = 0.985, FILL_INSET = 0.045,
-  MODULE_SCALE = 0.88.
+- **mesh**: shells + interior cages (every cube — plain hull carries m1*slot)
+  + decoration plates + wings, all mounted flush at scale 1 and rendered
+  FrontSide (wing slot stays DoubleSide for the zero-thickness w2121
+  fallback). Module/plate brightness factors (0.78/1.06) bake into vertex
+  color. No filler, no margins.
 - Vertex color = AO (and tone factors) in all modes; grouping by cube comp slot.
 
 ### pick.ts

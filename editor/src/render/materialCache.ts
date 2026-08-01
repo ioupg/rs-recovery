@@ -22,6 +22,12 @@ export interface MaterialVariant {
   map?: string | null;
   /** render the map at full colour, ignoring the slot tint */
   untinted?: boolean;
+  /** backface-culled — mesh mode's flush composition relies on coincident
+      opposite-facing surfaces resolving by winding, the engine's own scheme.
+      Facet modes keep DoubleSide (fan winding is not settled outward), as
+      does the wing slot (w2121 has no skin and stays a zero-thickness
+      polygon). */
+  frontSide?: boolean;
 }
 
 export class MaterialCache {
@@ -41,12 +47,12 @@ export class MaterialCache {
   }
 
   get(slot: MaterialSlot, v: MaterialVariant): THREE.MeshPhysicalMaterial {
-    const key = `${slot}|${v.textured ? 'a' : ''}|${v.map ?? ''}|${v.untinted ? 'w' : ''}`;
+    const key = `${slot}|${v.textured ? 'a' : ''}|${v.map ?? ''}|${v.untinted ? 'w' : ''}|${v.frontSide ? 'f' : ''}`;
     let e = this.cache.get(key);
     if (!e) {
       const m = new THREE.MeshPhysicalMaterial({
         vertexColors: true,
-        side: THREE.DoubleSide,
+        side: v.frontSide ? THREE.FrontSide : THREE.DoubleSide,
         flatShading: false,
       });
       if (v.map) {

@@ -229,6 +229,21 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
   in-plane and the winding comes out inverted — `DoubleSide` then lights those
   plates with backwards normals. The loop is walked backwards when its winding
   normal opposes the outward one; the filler backing gets the same treatment.
+- **Flush composition (2026-07-31, supersedes the inset-era notes above where
+  they conflict):** measuring the named `=default` parts settled the cell
+  topology. Shells are hollow strut frames with 0.05 rims lying exactly IN the
+  face planes (k8=default quirk: no rim on its bottom face, body floats at
+  y∈[0.05,1]); all 37 quad plate variants span the face exactly 1×1 with the
+  mounting back at z=0 and relief only outward (0.02–0.40); cages are
+  full-size with feet stopping exactly at the window edge. Coincident
+  surfaces always face opposite ways, so mesh/parts mode renders FrontSide
+  and mounts everything at scale 1: PLATE_MARGIN, FILL_INSET, MODULE_SCALE
+  and the editor's per-face shell rim cull are all gone from both apps. The
+  cage behind the window (m1*slot for plain hull) is what makes open faces
+  leak-free — the engine never had a filler. Before/after of the old
+  artifacts: `gaps-offset.jpg`/`ao-wrong.jpg` vs
+  `img/flush-viewer-dragonfly-frames.jpeg`,
+  `img/flush-editor-dragonfly-closeup.jpeg`.
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.

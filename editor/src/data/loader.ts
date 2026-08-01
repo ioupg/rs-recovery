@@ -11,7 +11,8 @@ export interface SubMesh { pos: number[]; nrm?: number[]; idx: number[]; tex?: s
 
 export interface ShapeMeshEntry {
   rid: string; tris: number; code: string;
-  /** side of the open window the shell leaves on each face (plate scale) */
+  /** side of the open window the shell leaves on each face — informational
+      only since the flush refactor: plates mount full-face, never scaled */
   window?: number;
   sub: SubMesh[];
 }

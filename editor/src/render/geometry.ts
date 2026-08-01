@@ -1,6 +1,6 @@
 /* Ship geometry builders — ports of the validated renderer in
-   ../viewer/index.html (facet collect+cull 763-798, mesh mode shells 800-860 /
-   filler 861-886 / plates 887-953, plate mode 974-1051, wings 1053-1096).
+   ../viewer/index.html (facet collect+cull, mesh-mode shells/cages/plates,
+   plate mode, wings — the two stay in lockstep).
    See ARCHITECTURE.md for mode semantics.
 
    Deviation from the reference, by design: the viewer bakes the compartment
@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
 import { WING_SLOT } from '../core/types';
 import {
-  AXIS_FACE_KIND, FACES, HULL_COMP, ORIENTATIONS, SHAPE_CENTROID, SLOT_AXES, WING_RING,
+  AXIS_FACE_KIND, HULL_COMP, ORIENTATIONS, SLOT_AXES, WING_RING,
   corner, plateFaceDir, rot,
 } from '../core/tables';
 import { compSlot } from '../core/materials';
@@ -23,19 +23,20 @@ import { occupancyOf, vertexAO, type Occupancy } from './ao';
 import { BLANK_UV, atlasUV } from './atlas';
 import {
   centroid, collectFacets, cross, cullFacets, dot, facetNormal, len, norm, orient, sub,
-  type Facet, type V3,
+  type V3,
 } from './facets';
 import { emitExtras } from './extras';
 
-/* plates drop into the open window each hull shell leaves on its face; the
-   margin keeps the plate edge off the rim so the two never fight for pixels */
-const PLATE_MARGIN = 0.985;
-/* the hull shapes are shells: the filler is the plain culled hull pushed a
-   little way inside, blocking the view without reaching the detail surface */
-const FILL_INSET = 0.045;
-/* interior module cage, shrunk to clear the shell it sits inside */
-const MODULE_SCALE = 0.88;
-const FILL_BRIGHT = 0.55, MODULE_BRIGHT = 0.78, PLATE_BRIGHT = 1.06;
+/* Flush composition (the engine's own scheme, measured from the =default
+   parts): every part is authored exactly in the unit cell and mates exactly
+   on the cell boundary planes — plates cover the whole face with their back
+   in the face plane, shells put their rims in the face planes, cages mount
+   at full size. Coincident surfaces always face opposite ways, so mesh mode
+   renders FrontSide and nothing fights; there are no insets or margins.
+   naked mode keeps a cosmetic cage shrink so rays and eyes slip between
+   cells in the systems view. */
+const NAKED_MODULE_SCALE = 0.88;
+const MODULE_BRIGHT = 0.78, PLATE_BRIGHT = 1.06;
 
 /** compartment → material slot; malformed compartments fall back to hull.
     No upper clamp — the slot key is open-ended and the material store falls
@@ -170,69 +171,27 @@ function addWings(
   return loops;
 }
 
-/* ── shell triangle → owning face classification, cached per shape ──
-      A shell rim face lies entirely in one of the shape's face planes; window
-      side-walls and other interior geometry match none. Knowing each
-      triangle's face lets the shells cull exactly what the facet cull culls —
-      without this, adjacent cubes stack coplanar rims at every shared
-      boundary and z-fight (the "cube edge" artifact). */
-const shellFaceClassCache = new Map<string, Int8Array[]>();
-
-function shellFaceClasses(shapeKey: string, sm: { sub: { pos: number[]; idx: number[] }[] },
-  shape: ShapeId): Int8Array[] {
-  let cached = shellFaceClassCache.get(shapeKey);
-  if (cached) return cached;
-  /* face planes in local authored space: normal (unnormalised) + offset */
-  const planes = FACES[shape].map(loop => {
-    const a = corner(loop[0]), b2 = corner(loop[1]), c = corner(loop[2]);
-    const e1: V3 = [b2[0] - a[0], b2[1] - a[1], b2[2] - a[2]];
-    const e2: V3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-    const n = cross(e1, e2);
-    return { n, d: dot(n, a as unknown as V3) };
-  });
-  cached = sm.sub.map(s => {
-    const cls = new Int8Array(s.idx.length / 3).fill(-1);
-    for (let t = 0; t < s.idx.length; t += 3) {
-      for (let fi = 0; fi < planes.length; fi++) {
-        const { n, d } = planes[fi];
-        let on = true;
-        for (const i of [s.idx[t], s.idx[t + 1], s.idx[t + 2]]) {
-          const v: V3 = [s.pos[i * 3], s.pos[i * 3 + 1], s.pos[i * 3 + 2]];
-          if (Math.abs(dot(n, v) - d) > 1e-3) { on = false; break; }
-        }
-        if (on) { cls[t / 3] = fi; break; }
-      }
-    }
-    return cls;
-  });
-  shellFaceClassCache.set(shapeKey, cached);
-  return cached;
-}
-
 /* ── mesh mode: the decoded part meshes in place of the procedural hull ──
       Each cube shape was matched to a decoded mesh by corner set, authored in
       the unit cell, so it rides the same rotate-about-centre transform the
-      facets use (viewer 800-831). Rim faces the facet cull dropped are
-      dropped here too. ── */
+      facets use (viewer 800-831). The whole frame is emitted for every cube,
+      the engine's way: rims meeting at a shared boundary are coplanar but
+      opposite-facing, which FrontSide rendering resolves per pixel — the old
+      per-face rim cull existed only for DoubleSide z-fighting. ── */
 function addShells(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
-  texOn: boolean, keptFaces?: Set<string>,
+  texOn: boolean,
 ): void {
   for (const cb of doc.cubes) {
     const sm = data.shapeMesh[String(cb.shape)];
     const M = ORIENTATIONS[cb.o];
     if (!sm || !M) continue;
-    const classes = shellFaceClasses(String(cb.shape), sm, cb.shape as ShapeId);
     const own = `${cb.x},${cb.y},${cb.z}`;
     const slot = slotOf(cb.comp);
-    sm.sub.forEach((s, si) => {
-      if (!s.nrm) return;
+    for (const s of sm.sub) {
+      if (!s.nrm) continue;
       const stex = texOn ? (s.tex?.[0] ?? null) : null;
-      const cls = classes[si];
-      for (let t = 0; t < s.idx.length; t += 3) {
-        const fi = cls[t / 3];
-        if (fi >= 0 && keptFaces && !keptFaces.has(`${cb.uid}:${fi}`)) continue;
-        for (const i of [s.idx[t], s.idx[t + 1], s.idx[t + 2]]) {
+      for (const i of s.idx) {
         const p = [s.pos[i * 3] - 0.5, s.pos[i * 3 + 1] - 0.5, s.pos[i * 3 + 2] - 0.5];
         const w: V3 = [
           M[0] * p[0] + M[1] * p[1] + M[2] * p[2] + 0.5 + cb.x,
@@ -247,24 +206,25 @@ function addShells(
         ];
         b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1,
           texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
-        }
       }
-    });
+    }
   }
 }
 
 /* interior module cage per cube — the machinery you see through the window.
-   Cage-to-system mapping is not recoverable, so cages are handed out by
-   compartment id over the family in a stable order (viewer 832-859). */
+   Cages are cell-authored full size like everything else; their face-plane
+   feet stop exactly at the shell's window edge (measured: zero-area contact
+   with the rim), so scale 1 is the engine mounting. naked mode passes a
+   cosmetic shrink instead. */
 function addModules(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
-  texOn: boolean, includeHull = false,
+  texOn: boolean, includeHull = false, moduleScale = 1,
 ): void {
   const N = data.moduleMesh.length;
   if (!N) return;
   for (const cb of doc.cubes) {
-    /* plain hull carries no cage in the dressed view; naked mode shows its
-       m1*slot frame cage too */
+    /* every cube carries a cage — plain hull owns the m1*slot frame; the
+       dressed view before the flush refactor hid it behind a filler */
     if (cb.comp === HULL_COMP && !includeHull) continue;
     /* index = compartment id: cages are name-bound to systems since the
        resource-id crack (m1*power=comp0 … m1*cargo=comp9); registered systems
@@ -283,9 +243,9 @@ function addModules(
       const stex = texOn ? (s.tex?.[0] ?? null) : null;
       for (const i of s.idx) {
         const p0 = [
-          (s.pos[i * 3] - 0.5) * MODULE_SCALE,
-          (s.pos[i * 3 + 1] - 0.5) * MODULE_SCALE,
-          (s.pos[i * 3 + 2] - 0.5) * MODULE_SCALE,
+          (s.pos[i * 3] - 0.5) * moduleScale,
+          (s.pos[i * 3 + 1] - 0.5) * moduleScale,
+          (s.pos[i * 3 + 2] - 0.5) * moduleScale,
         ];
         const w: V3 = [
           M[0] * p0[0] + M[1] * p0[1] + M[2] * p0[2] + 0.5 + cb.x,
@@ -305,35 +265,11 @@ function addModules(
   }
 }
 
-/** filler: the procedural hull, offset inward, sitting behind everything
-    (viewer 861-886) */
-function addFiller(
-  b: SlotBuckets, kept: readonly Facet[], occ: Occupancy, aoOn: boolean,
-): void {
-  for (const f of kept) {
-    const cen = centroid(f.verts);
-    const n = orient(facetNormal(f.verts), cen, f, occ);
-    const vs = f.verts.map(v =>
-      [v[0] - n[0] * FILL_INSET, v[1] - n[1] * FILL_INSET, v[2] - n[2] * FILL_INSET] as V3);
-    /* emit triangles wound with the outward normal, whichever way the loop
-       runs, so the explicit normal is not flipped by double-sided shading */
-    const rev = dot(cross(sub(vs[1], vs[0]), sub(vs[2], vs[0])), n) < 0;
-    const slot = slotOf(f.comp);
-    for (let i = 1; i < vs.length - 1; i++)
-      for (const k of rev ? [0, i + 1, i] : [0, i, i + 1])
-        b.vertex(slot, vs[k], n, (aoOn ? vertexAO(vs[k], n, occ, null) : 1) * FILL_BRIGHT);
-  }
-}
-
-/* ── decoration plates ride over the frame's exterior faces (viewer 887-953).
-      Each plate mesh is authored on a unit face with its mounting back at z=0
-      and the relief extending to -z (the same D3D-handed convention as the
-      winding), so it is mounted MIRRORED along the facet normal — back on the
-      face plane, relief standing out of the hull. Mapped as-is the relief would
-      sink into the window and only the flat back would show. The mirror flips
-      handedness, so position z and normal z are negated and each triangle is
-      rewound. Plates map through the affine frame the facet itself defines —
-      which also means they inherit the facet culling for free. ── */
+/* ── decoration plates: authored on a unit face with the mounting back at
+      z=0 spanning the whole face and the relief extending to -z (outward
+      once mounted). The back winds inward, the shell rim winds outward, so
+      the two coplanar surfaces coexist under FrontSide — the plate simply
+      covers the rim, and the frame shows only on faces with no plate. ── */
 const pickVariant = <T>(pool: readonly T[], i: number): T | undefined =>
   pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
 
@@ -354,15 +290,15 @@ function emitMountedPart(
   sink: (p: V3, n: V3, uv?: [number, number], tex?: string | null) => void,
   cell: V3, M: readonly number[] | undefined,
   pm: { sub: { pos: number[]; nrm?: number[]; idx: number[]; uv?: number[]; tex?: string[] }[] },
-  windowK: number, texOn: boolean, texOverride?: string,
+  texOn: boolean, texOverride?: string,
 ): void {
   if (!M) return;
   for (const s of pm.sub) {
     if (!s.nrm) continue;
     const stex = texOn ? (texOverride ?? s.tex?.[0] ?? null) : null;
     for (const i of s.idx) {
-      const px = 0.5 + (s.pos[i * 3] - 0.5) * windowK - 0.5;
-      const py = 0.5 + (s.pos[i * 3 + 1] - 0.5) * windowK - 0.5;
+      const px = s.pos[i * 3] - 0.5;
+      const py = s.pos[i * 3 + 1] - 0.5;
       const pz = s.pos[i * 3 + 2] - 0.5;
       const w: V3 = [
         M[0] * px + M[1] * py + M[2] * pz + 0.5 + cell[0],
@@ -389,7 +325,7 @@ export function plateMeshFor(
   slotO: number, data: GameData, variants: PlateVariants,
   cubeAtCell?: (x: number, y: number, z: number) => { shape: number } | undefined,
   overrideId?: string | null,
-): { pm: PlateMeshEntry; windowK: number } | null {
+): PlateMeshEntry | null {
   const d = plateFaceDir(slotO);
   const M = ORIENTATIONS[cube.o];
   if (!M) return null;
@@ -406,17 +342,14 @@ export function plateMeshFor(
   if (!kind) return null;
   const nb = cubeAtCell?.(cube.x + d[0], cube.y + d[1], cube.z + d[2]);
   if (nb && nb.shape === 0) return null;          // buried under a full cube
-  const sm = data.shapeMesh[String(cube.shape)];
-  const windowK = ((sm && sm.window) || 1) * PLATE_MARGIN;
   if (overrideId) {
     const def = data.plates.get(overrideId);
-    if (def && def.faceType === kind) return { pm: def.mesh as PlateMeshEntry, windowK };
+    if (def && def.faceType === kind) return def.mesh as PlateMeshEntry;
   }
   const quads = data.plateMesh.quad_all ?? [];
   const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
   const pm = kind === 'quad' ? pickVariant(quads, variants.quad) : pickVariant(tris, variants.tri);
-  if (!pm) return null;
-  return { pm, windowK };
+  return pm ?? null;
 }
 
 /** translucent preview triangles for the plate tool: the plate as it would be
@@ -426,11 +359,11 @@ export function mountedPlatePositions(
   slotO: number, data: GameData, variants: PlateVariants,
   overrideId?: string | null,
 ): number[] | null {
-  const found = plateMeshFor(cube, slotO, data, variants, undefined, overrideId);
-  if (!found) return null;
+  const pm = plateMeshFor(cube, slotO, data, variants, undefined, overrideId);
+  if (!pm) return null;
   const pos: number[] = [];
   emitMountedPart((w) => { pos.push(w[0], w[1], w[2]); },
-    [cube.x, cube.y, cube.z], ORIENTATIONS[slotO], found.pm, found.windowK, false);
+    [cube.x, cube.y, cube.z], ORIENTATIONS[slotO], pm, false);
   return pos.length ? pos : null;
 }
 
@@ -447,11 +380,11 @@ function addAxisPlates(
     for (let i = 0; i < 6 && i < cb.slots.length; i++) {
       const sl = cb.slots[i];
       if (!sl.p) continue;
-      const found = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
-      if (!found) continue;
+      const pm = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
+      if (!pm) continue;
       emitMountedPart((w, n, uv, tex) => {
         b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
-      }, [cb.x, cb.y, cb.z], ORIENTATIONS[sl.o], found.pm, found.windowK, texOn);
+      }, [cb.x, cb.y, cb.z], ORIENTATIONS[sl.o], pm, texOn);
     }
   }
 }
@@ -485,7 +418,7 @@ function addNonAxisPlates(
     const mslot = slotOf(cb.comp);
     emitMountedPart((w, n, uv, tex) => {
       b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
-    }, [cb.x, cb.y, cb.z], matMul9(Mc, Ms), pm, 1, texOn);
+    }, [cb.x, cb.y, cb.z], matMul9(Mc, Ms), pm, texOn);
   }
 }
 
@@ -505,7 +438,7 @@ function addWingSkins(
     if (!pm || !M) return;
     emitMountedPart((w, n, uv, tex) => {
       b.vertex('wing', w, n, aoOn ? vertexAO(w, n, occ, null) : 1, uv, tex ?? null);
-    }, [el.x, el.y, el.z], M, pm, 1, texOn, 'wing_solar');
+    }, [el.x, el.y, el.z], M, pm, texOn, 'wing_solar');
     skinned.add(i);
   });
   return skinned;
@@ -528,7 +461,7 @@ function addExtras(
 
 /** naked-mode pick shrink — matches the module cages so rays slip between
     cells and reach interior systems */
-export const NAKED_PICK_SCALE = MODULE_SCALE;
+export const NAKED_PICK_SCALE = NAKED_MODULE_SCALE;
 
 export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptions): BuiltShip {
   /* hull only — attached elements never occlude */
@@ -540,7 +473,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
        destroyed plate would expose. The hull itself stays as a faint edge
        overlay for spatial reference. */
     const b = new SlotBuckets(opts.textures);
-    addModules(b, doc, data, occ, opts.ao, opts.textures, true);
+    addModules(b, doc, data, occ, opts.ao, opts.textures, true, NAKED_MODULE_SCALE);
     addWings(b, doc, occ, opts.ao, opts.textures, true);
     addExtras(b, doc, data, occ, opts.ao, opts.textures, false);
     const { geometry, groupSlots, groupTex } = b.build();
@@ -553,12 +486,12 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
 
   if (opts.mode === 'mesh') {
     /* with textures on, the archive's own UVs and per-submesh diffuse maps are
-       emitted and triangles group by (slot, texture) instead of slot alone */
+       emitted and triangles group by (slot, texture) instead of slot alone.
+       Rendered FrontSide: complete frames, full-size cages behind every
+       window (m1*slot for plain hull) — no filler, no insets. */
     const b = new SlotBuckets(opts.textures);
-    const keptFaces = new Set(kept.map(f => `${f.uid}:${f.faceIndex}`));
-    addShells(b, doc, data, occ, opts.ao, opts.textures, keptFaces);
-    addModules(b, doc, data, occ, opts.ao, opts.textures);
-    addFiller(b, kept, occ, opts.ao);
+    addShells(b, doc, data, occ, opts.ao, opts.textures);
+    addModules(b, doc, data, occ, opts.ao, opts.textures, true);
     if (opts.plates) {
       addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
       addNonAxisPlates(b, doc, data, occ, opts.ao, opts.textures);

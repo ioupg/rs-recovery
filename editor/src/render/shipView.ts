@@ -124,6 +124,9 @@ export class ShipView {
         textured, map,
         untinted: (palette && map !== null && (naked || this.options.compColors))
           || rawMap === 'wing_solar',
+        /* mesh mode's flush composition needs backface culling; the wing slot
+           keeps DoubleSide for the zero-thickness w2121 fallback polygon */
+        frontSide: opts.mode === 'mesh' && slot !== 'wing',
       });
     });
 
