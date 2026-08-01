@@ -27,11 +27,41 @@ export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: H
   const tabs: [HTMLButtonElement, HTMLElement][] = [
     [toolTab, toolPanel], [matTab, materialsPanel], [infoTab, infoPanel],
   ];
+
+  /* Material assignments are only visible in the textured mesh view, so the
+     Materials tab orchestrates the presentation the same way tools with
+     needsMode do: entering switches to mesh+textures, leaving restores what
+     the user had — unless they changed modes themselves meanwhile (then the
+     remembered mode is stale and restoring would fight them). */
+  let matAutoMode: { mode: typeof ctx.state.render.mode; textures: boolean } | null = null;
+  let applyingAuto = false;
+  const setRender = (mode: typeof ctx.state.render.mode, textures: boolean): void => {
+    applyingAuto = true;
+    ctx.state.update({ render: { ...ctx.state.render, mode, textures } });
+    applyingAuto = false;
+  };
+  const enterMaterialsView = (): void => {
+    const r = ctx.state.render;
+    if (r.mode === 'mesh' && r.textures) return;
+    matAutoMode = { mode: r.mode, textures: r.textures };
+    setRender('mesh', true);
+  };
+  const leaveMaterialsView = (): void => {
+    if (!matAutoMode) return;
+    setRender(matAutoMode.mode, matAutoMode.textures);
+    matAutoMode = null;
+  };
+
+  let active: HTMLButtonElement | null = null;
   const activate = (which: HTMLButtonElement): void => {
+    if (which === active) return;
+    if (active === matTab) leaveMaterialsView();
+    active = which;
     for (const [b, p] of tabs) {
       b.classList.toggle('active', b === which);
       p.classList.toggle('active', b === which);
     }
+    if (which === matTab) enterMaterialsView();
   };
   for (const [b] of tabs) b.onclick = () => activate(b);
   activate(toolTab);
@@ -45,6 +75,8 @@ export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: H
       toolTab.textContent = toolTabLabel(ctx.state.tool);
       activate(toolTab);
     }
+    /* a render change we didn't make = the user took manual control */
+    if (keys.includes('render') && !applyingAuto) matAutoMode = null;
   });
 
   return { preview };

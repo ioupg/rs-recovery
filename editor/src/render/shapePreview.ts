@@ -244,6 +244,16 @@ export function renderThumbnail(spec: ThumbSpec, size = 56): string {
    material to look like anything. These get a PMREM environment so
    metalness/roughness/clearcoat actually read. */
 
+/** A preview sphere wraps the whole texture once around its equator while
+    the preview cube shows roughly one tile per face — wildly different texel
+    densities for the same material. Boosting the sphere's UV repeat ~3×
+    (equator ≈ 4 cube faces, pole-to-pole ≈ 2; a uniform 3 splits the
+    difference) makes sphere, cube and thumbnails read the material at
+    comparable scale. */
+const SPHERE_UV_BOOST = 3;
+const sphereUv = (mat: LibMaterial): LibMaterial =>
+  ({ ...mat, uvScale: mat.uvScale * SPHERE_UV_BOOST });
+
 /** built once, lazily, directly on the shared thumb scene above — every
     thumbnail (shape/wing/mesh included) picks up the same ambient reflection
     afterwards, which is the point: one consistent lighting rig, one shared
@@ -268,7 +278,7 @@ export function renderMaterialThumb(mat: LibMaterial, size = 56): string {
   const t = thumbCtx(size);
   ensureThumbEnv(t);
 
-  const material = buildPreviewMaterial(mat);
+  const material = buildPreviewMaterial(sphereUv(mat));
   const geo = new THREE.SphereGeometry(0.85, 48, 32);
   const mesh = new THREE.Mesh(geo, material);
   t.content.add(mesh);
@@ -293,6 +303,7 @@ export class MaterialPreview {
   private material = new THREE.MeshPhysicalMaterial();
   private mesh: THREE.Mesh;
   private shape: 'sphere' | 'cube' = 'sphere';
+  private mat: LibMaterial | null = null;
 
   private azimuth = 0.6;
   private elevation = 0.3;
@@ -331,9 +342,11 @@ export class MaterialPreview {
   }
 
   /** re-apply the material in place (one live instance, patched — same
-      invariant as the cached ship materials) and render. */
+      invariant as the cached ship materials) and render. The sphere gets the
+      UV boost so both shapes show the texture at comparable density. */
   update(mat: LibMaterial): void {
-    applyLibMaterial(this.material, mat);
+    this.mat = mat;
+    applyLibMaterial(this.material, this.shape === 'sphere' ? sphereUv(mat) : mat);
     this.render();
   }
 
@@ -347,6 +360,7 @@ export class MaterialPreview {
       : new RoundedBoxGeometry(1.1, 1.1, 1.1, 4, 0.06);
     this.mesh = new THREE.Mesh(geo, this.material);
     this.scene.add(this.mesh);
+    if (this.mat) applyLibMaterial(this.material, s === 'sphere' ? sphereUv(this.mat) : this.mat);
     this.render();
   }
 

@@ -44,6 +44,8 @@ export interface UiActions {
   /** mirror the active piece / selection along a world axis */
   mirrorActive(axis: 0 | 1 | 2): void;
   deleteSelection(): void;
+  /** glow every mesh-mode face wearing this archive texture (null clears) */
+  highlightTexture(name: string | null): void;
 }
 
 export interface UiContext {

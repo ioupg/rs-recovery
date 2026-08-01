@@ -32,6 +32,8 @@ export interface MaterialVariant {
 export class MaterialCache {
   private readonly cache = new Map<string, { slot: MaterialSlot; v: MaterialVariant; m: THREE.MeshPhysicalMaterial }>();
   private readonly unsubscribes: Unsubscribe[] = [];
+  /** archive texture name whose groups glow (Materials-tab hover) */
+  private highlight: string | null = null;
 
   constructor(
     private readonly store: MaterialStore,
@@ -60,6 +62,14 @@ export class MaterialCache {
     return e.m;
   }
 
+  /** glow every mesh-mode group wearing this archive texture (null clears) —
+      the Materials tab's answer to "which faces is this texture on?" */
+  highlightTexture(name: string | null): void {
+    if (name === this.highlight) return;
+    this.highlight = name;
+    this.refreshAll();
+  }
+
   dispose(): void {
     for (const u of this.unsubscribes) u();
     for (const e of this.cache.values()) e.m.dispose();
@@ -72,6 +82,10 @@ export class MaterialCache {
       const resolved = this.library.byId(id) ?? this.library.byId(v.map);
       if (resolved) {
         applyLibMaterial(m, resolved);
+        if (v.map === this.highlight) {
+          m.emissive.set('#4A90D9');
+          m.emissiveIntensity = 0.4;
+        }
         return;
       }
       /* defensive: the assignment points at a dropped id and even the

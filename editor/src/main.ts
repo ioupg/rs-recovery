@@ -134,6 +134,7 @@ async function init(): Promise<void> {
     rotateActive: (axis, dir) => controller.rotateAxis(axis, dir),
     mirrorActive: axis => controller.mirrorAxis(axis),
     deleteSelection: () => controller.deleteSelection(),
+    highlightTexture: name => cache.highlightTexture(name),
   };
 
   const ctx: UiContext = { state, history, materials, library, assignments, model, data, actions };

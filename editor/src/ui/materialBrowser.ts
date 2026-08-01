@@ -38,8 +38,12 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   modal.setAttribute('aria-label', 'Material library');
 
   const head = h('div', 'modal-head');
-  head.append(h('h2', undefined,
-    opts.assignFor ? `Assign material — ${shortName(opts.assignFor)}` : 'Material library'));
+  const title = h('div', 'matlib-title');
+  title.append(h('h2', undefined, 'Material library'));
+  /* assign mode: show the target texture and what it currently wears */
+  const subtitle = opts.assignFor ? h('span', 'matlib-subtitle') : null;
+  if (subtitle) title.append(subtitle);
+  head.append(title);
   const closeBtn = h('button', 'modal-close', '✕');
   closeBtn.type = 'button';
   closeBtn.title = 'Close (Esc)';
@@ -54,9 +58,10 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   for (const m of entries) {
     const card = h('button', 'item-btn matlib-card');
     card.type = 'button';
+    card.title = m.name;
     const img = document.createElement('img');
     img.alt = m.name;
-    img.src = renderMaterialThumb(m);
+    img.src = renderMaterialThumb(m, 84);
     card.append(img, h('span', 'item-name', m.name));
     if (m.legacy) card.append(h('span', 'matlib-badge', 'archive'));
     card.onclick = () => selectCard(m.id);
@@ -118,10 +123,18 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   const uvRotation = slider('UV rotation', 0, 360, 1);
   tweaks.append(uvScale.row, uvRotation.row);
 
+  /* input texture set, read-only — which files feed this material */
+  const mapsBlock = h('div', 'matlib-maps');
+  tweaks.append(mapsBlock);
+
   right.append(tweaks);
 
   const actions = h('div', 'matlib-actions');
-  const assignBtn = opts.assignFor ? button('Assign') : null;
+  const assignBtn = opts.assignFor ? button(`Apply to ${shortName(opts.assignFor)}`) : null;
+  if (assignBtn) {
+    assignBtn.classList.add('active');
+    assignBtn.title = `assign the selected material to every face textured with ${shortName(opts.assignFor!)}`;
+  }
   const resetBtn = button('Reset');
   const exportBtn = button('Export library');
   const closeActionBtn = button('Close');
@@ -137,8 +150,39 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   /* ── wiring ── */
   const currentMat = (): LibMaterial => ctx.library.byId(selectedId) ?? entries[0];
 
+  const basename = (url: string): string => url.split('/').pop() ?? url;
+
+  const refreshMaps = (m: LibMaterial): void => {
+    mapsBlock.textContent = '';
+    const slots: [string, string | undefined][] = [
+      ['albedo', m.maps.albedo], ['normal', m.maps.normal],
+      ['orm', m.maps.orm], ['roughness', m.maps.orm ? undefined : m.maps.roughness],
+      ['emissive', m.maps.emissive],
+    ];
+    const used = slots.filter((s): s is [string, string] => !!s[1]);
+    mapsBlock.append(h('span', 'matlib-maps-head', 'input textures'));
+    if (!used.length) {
+      mapsBlock.append(h('span', 'matlib-map-row', 'none — scalar material'));
+      return;
+    }
+    for (const [kind, url] of used) {
+      const row = h('span', 'matlib-map-row');
+      row.title = url;
+      row.append(h('b', undefined, kind), ` ${basename(url)}`);
+      mapsBlock.append(row);
+    }
+  };
+
+  const refreshSubtitle = (): void => {
+    if (!subtitle || !opts.assignFor) return;
+    const cur = ctx.library.byId(ctx.assignments.get(opts.assignFor));
+    subtitle.textContent = `for ${shortName(opts.assignFor)} · currently ${cur?.name ?? '—'}`;
+  };
+  refreshSubtitle();
+
   const refreshTweaks = (): void => {
     const m = currentMat();
+    refreshMaps(m);
     colorInput.value = m.color;
     emissiveInput.value = m.emissive;
     const set = (s: { input: HTMLInputElement; val: HTMLSpanElement }, v: number, digits = 2): void => {
@@ -205,6 +249,7 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   };
   if (assignBtn) assignBtn.onclick = () => {
     ctx.assignments.assign(opts.assignFor!, selectedId);
+    refreshSubtitle();
     close();
   };
 

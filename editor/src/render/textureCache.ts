@@ -118,6 +118,10 @@ export function getMapTexture(
     if (loadedBase.has(bKey)) {
       c.needsUpdate = true;
     } else {
+      /* Texture.copy() bumps the clone's version, and a versioned texture
+         with no pixels makes the renderer warn every frame until the image
+         lands — park it at 0; the base's onLoad flips needsUpdate for us. */
+      c.version = 0;
       let pending = pendingClones.get(bKey);
       if (!pending) { pending = new Set(); pendingClones.set(bKey, pending); }
       pending.add(c);

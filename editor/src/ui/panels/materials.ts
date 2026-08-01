@@ -38,36 +38,42 @@ function resolveAssigned(ctx: UiContext, name: string): LibMaterial | undefined 
   return ctx.library.byId(ctx.assignments.get(name)) ?? ctx.library.byId(name);
 }
 
-/** one row per archive texture name — click opens the material browser to
-    reassign it; thumb + assigned material name reflect the current mapping */
+/** 2-column swatch grid, one cell per archive texture — big samples, text
+    demoted to a caption + hover tooltip. Click opens the material browser
+    targeting that texture; hover glows every ship face wearing it (the tab
+    guarantees the textured mesh view, so the glow is always visible). The
+    Library… button opens the browser in plain browse/tweak mode. */
 function buildAssignmentSection(host: HTMLElement, ctx: UiContext): void {
-  host.append(h('h3', 'mat-section', 'Materials'));
+  const head = h('div', 'mat-sechead');
+  const libBtn = button('Library…');
+  libBtn.title = 'browse and tune the material library';
+  libBtn.onclick = () => openMaterialBrowser(ctx, {});
+  head.append(h('h3', 'mat-section', 'Materials'), libBtn);
+  host.append(head);
 
-  const rows: { name: string; img: HTMLImageElement; matName: HTMLElement }[] = [];
+  const grid = h('div', 'matlib-grid2');
+  host.append(grid);
+
+  const cells: { name: string; cell: HTMLButtonElement; img: HTMLImageElement }[] = [];
   for (const name of collectTextureNames(ctx.data)) {
-    const row = h('button', 'matlib-row');
-    row.type = 'button';
-
+    const cell = h('button', 'matlib-cell');
+    cell.type = 'button';
     const img = document.createElement('img');
-    img.className = 'matlib-thumb';
     img.alt = name;
-
-    const matName = h('span', 'matlib-mat');
-    const info = h('span', 'matlib-info');
-    info.append(h('span', 'matlib-tex', shortName(name)), matName);
-    row.append(img, info);
-    row.onclick = () => openMaterialBrowser(ctx, { assignFor: name });
-    host.append(row);
-
-    rows.push({ name, img, matName });
+    cell.append(img, h('span', 'cap', shortName(name)));
+    cell.onclick = () => openMaterialBrowser(ctx, { assignFor: name });
+    cell.onmouseenter = () => ctx.actions.highlightTexture(name);
+    cell.onmouseleave = () => ctx.actions.highlightTexture(null);
+    grid.append(cell);
+    cells.push({ name, cell, img });
   }
 
   const refresh = (): void => {
-    for (const r of rows) {
-      const mat = resolveAssigned(ctx, r.name);
+    for (const c of cells) {
+      const mat = resolveAssigned(ctx, c.name);
       if (!mat) continue;
-      r.img.src = renderMaterialThumb(mat);
-      r.matName.textContent = mat.name;
+      c.img.src = renderMaterialThumb(mat, 112);
+      c.cell.title = `${shortName(c.name)} → ${mat.name}\nclick to change · hover shows where it sits`;
     }
   };
   refresh();
