@@ -15,6 +15,7 @@ import type { ShipDoc } from './core/types';
 import { EditorState } from './editor/state';
 import { EditorController } from './editor/controller';
 import { createScene } from './render/scene';
+import { environmentTexture } from './render/environment';
 import { MaterialCache } from './render/materialCache';
 import { getManifest, initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
@@ -161,7 +162,8 @@ async function init(): Promise<void> {
   const sceneCtx = createScene(canvas);
   fitShadow = b => sceneCtx.fitShadow(b as { min: [number, number, number]; max: [number, number, number] });
   viewports = new Viewports(refs.stage, sceneCtx.renderer);
-  const cache = new MaterialCache(materials, library, assignments);
+  const cache = new MaterialCache(materials, library, assignments,
+    () => environmentTexture(sceneCtx.renderer));
   view = new ShipView(sceneCtx, cache, data, uid => model.byUid(uid));
   view.setDoc(model.doc);
   view.setOptions(state.render);

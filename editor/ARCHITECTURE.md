@@ -257,7 +257,10 @@ Renderer (antialias, shadows PCFSoft); IBL via `render/environment.ts` — an
 app-global selectable environment (built-in RoomEnvironment plus the CC0/PD
 HDRIs under `env/`, PMREM cached per renderer since render targets are
 GL-context-bound; selection persisted to `rs.editor.env.v1`, picked in the
-material browser, followed by the viewport and every preview/thumb scene);
+material browser, followed by the viewport and every preview/thumb scene —
+and bound as each managed material's OWN envMap, because three ignores
+material.envMapIntensity under scene.environment, which is what makes the
+per-material "reflections" slider work);
 hemisphere + key directional (shadow) + rim per viewer 484-495, grid + floor
 per 497-504, background #0A0E14, fog off in ortho views (leave fog out
 entirely for the editor).

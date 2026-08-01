@@ -5,7 +5,9 @@
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { applyEnvironment, subscribeEnvironment } from './environment';
+import {
+  PREVIEW_ENV_INTENSITY, applyEnvironment, environmentTexture, subscribeEnvironment,
+} from './environment';
 import type { LibMaterial, ShapeId } from '../core/types';
 import { FACES, WING_RING, corner, rotDir } from '../core/tables';
 import { applyLibMaterial } from './libMaterial';
@@ -263,7 +265,7 @@ function ensureThumbEnv(t: ReturnType<typeof thumbCtx>): void {
   if (thumbEnvBuilt) return;
   thumbEnvBuilt = true;
   applyEnvironment(t.renderer, t.scene);
-  t.scene.environmentIntensity = 0.9;
+  t.scene.environmentIntensity = PREVIEW_ENV_INTENSITY;
   /* thumbnails are pulled by their consumers — this only keeps the shared
      scene current; the environment change event tells consumers to re-pull */
   subscribeEnvironment(() => applyEnvironment(t.renderer, t.scene));
@@ -289,7 +291,8 @@ export function renderMaterialThumb(mat: LibMaterial, size = 56): string {
     t.scene.add(mesh);
     matThumb = { mesh, material };
   }
-  applyLibMaterial(matThumb.material, sphereUv(mat));
+  applyLibMaterial(matThumb.material, sphereUv(mat),
+    { map: environmentTexture(t.renderer), intensity: PREVIEW_ENV_INTENSITY });
 
   /* shape/wing thumbnails leave their meshes parented under content between
      calls — hide the group so they can't photobomb the material sphere */
@@ -338,11 +341,13 @@ export class MaterialPreview {
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
 
     applyEnvironment(this.renderer, this.scene);
-    this.scene.environmentIntensity = 0.9;
-    /* singleton, never disposed — the subscription lives for the app */
+    this.scene.environmentIntensity = PREVIEW_ENV_INTENSITY;
+    /* singleton, never disposed — the subscription lives for the app.
+       update() re-binds the material's own envMap to the new selection */
     subscribeEnvironment(() => {
       applyEnvironment(this.renderer, this.scene);
-      this.render();
+      if (this.mat) this.update(this.mat);
+      else this.render();
     });
 
     this.scene.add(new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 1.0));
@@ -367,7 +372,8 @@ export class MaterialPreview {
       UV boost so both shapes show the texture at comparable density. */
   update(mat: LibMaterial): void {
     this.mat = mat;
-    applyLibMaterial(this.material, this.shape === 'sphere' ? sphereUv(mat) : mat);
+    applyLibMaterial(this.material, this.shape === 'sphere' ? sphereUv(mat) : mat,
+      { map: environmentTexture(this.renderer), intensity: PREVIEW_ENV_INTENSITY });
     this.render();
   }
 
@@ -381,8 +387,8 @@ export class MaterialPreview {
       : new RoundedBoxGeometry(1.1, 1.1, 1.1, 4, 0.06);
     this.mesh = new THREE.Mesh(geo, this.material);
     this.scene.add(this.mesh);
-    if (this.mat) applyLibMaterial(this.material, s === 'sphere' ? sphereUv(this.mat) : this.mat);
-    this.render();
+    if (this.mat) this.update(this.mat);
+    else this.render();
   }
 
   private onPointerDown = (e: PointerEvent): void => {

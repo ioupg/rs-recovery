@@ -26,6 +26,12 @@ export const ENVIRONMENTS: readonly EnvironmentDef[] = [
   { id: 'space', name: 'Deep space (NASA)', url: 'env/nasa_starmap_2020_1k.hdr' },
 ];
 
+/** scene-level IBL strengths: the viewport keeps reflections restrained so
+    the editing read stays flat; previews push them so materials pop. These
+    multiply each material's own envIntensity (the "reflections" slider). */
+export const VIEWPORT_ENV_INTENSITY = 0.35;
+export const PREVIEW_ENV_INTENSITY = 0.9;
+
 const ENV_KEY = 'rs.editor.env.v1';
 
 function loadStored(): string {
@@ -83,42 +89,55 @@ function roomTexture(renderer: THREE.WebGLRenderer): THREE.Texture {
   return tex;
 }
 
-/** Point scene.environment at the current selection. Cached environments
-    (and the built-in room) apply synchronously; a cold HDRI applies the room
-    as a stand-in and swaps in place once decoded — or drops the swap if the
-    selection moved on meanwhile (the PMREM is cached either way). A failed
-    fetch keeps the room and logs: offline dev is a normal state, and the
-    next apply retries. Textures are cache-owned for the app's life — scenes
-    must never dispose what this hands them. */
-export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
-  const id = current;
-  const def = ENVIRONMENTS.find(e => e.id === id)!;
-  if (!def.url) {
-    scene.environment = roomTexture(renderer);
-    return;
-  }
+/** one in-flight PMREM per (renderer, env id) — thumbnails may ask dozens of
+    times per frame while an HDRI is still decoding */
+const pendingByRenderer = new WeakMap<THREE.WebGLRenderer, Set<string>>();
+
+/** The current environment texture for this renderer, synchronously: cached
+    entries (and the built-in room) return immediately; a cold HDRI kicks off
+    its load and hands back the room as a stand-in — when the load lands, the
+    change event fires and subscribers re-pull. A failed fetch keeps the room
+    and logs (offline dev is a normal state); the next call retries. Textures
+    are cache-owned for the app's life — callers must never dispose them. */
+export function environmentTexture(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const def = ENVIRONMENTS.find(e => e.id === current)!;
+  if (!def.url) return roomTexture(renderer);
   const cache = rendererCache(renderer);
   const hit = cache.get(def.id);
-  if (hit) {
-    scene.environment = hit;
-    return;
+  if (hit) return hit;
+
+  let pending = pendingByRenderer.get(renderer);
+  if (!pending) pendingByRenderer.set(renderer, pending = new Set());
+  if (!pending.has(def.id)) {
+    pending.add(def.id);
+    const url = def.url;
+    let p = hdrCache.get(url);
+    if (!p) hdrCache.set(url, p = new HDRLoader().loadAsync(import.meta.env.BASE_URL + url));
+    p.then(hdr => {
+      pending.delete(def.id);
+      if (!cache.has(def.id)) {
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        cache.set(def.id, pmrem.fromEquirectangular(hdr).texture);
+        pmrem.dispose();
+      }
+      emit();
+    }).catch(() => {
+      pending.delete(def.id);
+      hdrCache.delete(url);
+      console.info(`environment "${def.id}" failed to load — keeping the room env`);
+    });
   }
-  scene.environment = roomTexture(renderer);
-  let p = hdrCache.get(def.url);
-  if (!p) hdrCache.set(def.url, p = new HDRLoader().loadAsync(import.meta.env.BASE_URL + def.url));
-  p.then(hdr => {
-    let tex = cache.get(def.id);
-    if (!tex) {
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      tex = pmrem.fromEquirectangular(hdr).texture;
-      pmrem.dispose();
-      cache.set(def.id, tex);
-    }
-    if (current !== id) return;
-    scene.environment = tex;
-    emit();
-  }).catch(() => {
-    hdrCache.delete(def.url!);
-    console.info(`environment "${def.id}" failed to load — keeping the room env`);
-  });
+  return roomTexture(renderer);
+}
+
+/** Point scene.environment at the current selection (stand-in + re-emit
+    semantics of environmentTexture). Note three's asymmetry: materials that
+    inherit scene.environment have their envMapIntensity IGNORED — the
+    renderer overwrites that uniform with scene.environmentIntensity
+    (WebGLRenderer "material.envMap === null" branch). Per-material
+    reflection strength therefore requires binding the material's own
+    envMap — applyLibMaterial's env parameter — which is how the library
+    materials get their working "reflections" slider. */
+export function applyEnvironment(renderer: THREE.WebGLRenderer, scene: THREE.Scene): void {
+  scene.environment = environmentTexture(renderer);
 }

@@ -11,7 +11,9 @@ import type { MaterialSlot, Unsubscribe } from '../core/types';
 import type { AssignmentStore, MaterialStore } from '../core/materials';
 import type { MaterialLibrary } from '../core/library';
 import { getAtlasTexture } from './atlas';
-import { applyLibMaterial, clearcoatFlips } from './libMaterial';
+import { VIEWPORT_ENV_INTENSITY, subscribeEnvironment } from './environment';
+import { applyLibMaterial, bindEnvMap, clearcoatFlips } from './libMaterial';
+import type { EnvBinding } from './libMaterial';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -39,10 +41,15 @@ export class MaterialCache {
     private readonly store: MaterialStore,
     private readonly library: MaterialLibrary,
     private readonly assignments: AssignmentStore,
+    /** current env texture for the viewport renderer (environmentTexture
+        bound in main.ts) — materials carry their own envMap so the
+        per-material envIntensity applies (see EnvBinding in libMaterial) */
+    private readonly env?: () => THREE.Texture,
   ) {
     this.unsubscribes.push(store.subscribe(() => this.refreshAll()));
     this.unsubscribes.push(library.subscribe(() => this.refreshAll()));
     this.unsubscribes.push(assignments.subscribe(() => this.refreshAll()));
+    if (env) this.unsubscribes.push(subscribeEnvironment(() => this.refreshAll()));
   }
 
   get(slot: MaterialSlot, v: MaterialVariant): THREE.MeshPhysicalMaterial {
@@ -77,11 +84,14 @@ export class MaterialCache {
   }
 
   private apply(m: THREE.MeshPhysicalMaterial, slot: MaterialSlot, v: MaterialVariant): void {
+    const envMap = this.env?.();
+    const bind: EnvBinding | undefined =
+      envMap ? { map: envMap, intensity: VIEWPORT_ENV_INTENSITY } : undefined;
     if (v.map) {
       const id = this.assignments.get(v.map);
       const resolved = this.library.byId(id) ?? this.library.byId(v.map);
       if (resolved) {
-        applyLibMaterial(m, resolved);
+        applyLibMaterial(m, resolved, bind);
         if (v.map === this.highlight) {
           m.emissive.set('#4A90D9');
           m.emissiveIntensity = 0.4;
@@ -97,7 +107,7 @@ export class MaterialCache {
     m.color.set(def.color);
     m.roughness = clamp01(def.roughness);
     m.metalness = clamp01(def.metalness);
-    m.envMapIntensity = 1;
+    bindEnvMap(m, bind);
     m.emissive.set(def.emissive);
     m.emissiveIntensity = def.emissiveIntensity;
     if (clearcoatFlips(m.clearcoat, def.clearcoat)) m.needsUpdate = true;

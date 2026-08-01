@@ -5,7 +5,7 @@
    and the space-mode extras, which the editor doesn't use. */
 
 import * as THREE from 'three';
-import { applyEnvironment, subscribeEnvironment } from './environment';
+import { VIEWPORT_ENV_INTENSITY, applyEnvironment, subscribeEnvironment } from './environment';
 import type { Vec3 } from '../core/types';
 
 export interface SceneCtx {
@@ -31,7 +31,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   // no fog — editor wants a flat, legible background at any zoom
 
   applyEnvironment(renderer, scene);
-  scene.environmentIntensity = 0.35;
+  scene.environmentIntensity = VIEWPORT_ENV_INTENSITY;
   /* the main loop renders every frame, so an env swap shows up by itself */
   const unsubEnv = subscribeEnvironment(() => applyEnvironment(renderer, scene));
 

@@ -44,9 +44,32 @@ const flips = (had: THREE.Texture | null, next: THREE.Texture | null): boolean =
 export const clearcoatFlips = (had: number, next: number): boolean =>
   (had > 0) !== (next > 0);
 
+/** Environment binding for a material. three IGNORES material.envMapIntensity
+    when the env comes from scene.environment (the renderer overwrites the
+    uniform with scene.environmentIntensity every draw), so per-material
+    reflection strength only works through the material's own envMap.
+    `intensity` is the scene-level strength (VIEWPORT/PREVIEW_ENV_INTENSITY)
+    that the per-material envIntensity multiplies. */
+export interface EnvBinding { map: THREE.Texture; intensity: number }
+
+/** set (or clear) a material's own envMap; envIntensity is the material's
+    "reflections" scalar, 1 for the plain slot defs */
+export function bindEnvMap(
+  m: THREE.MeshPhysicalMaterial, env: EnvBinding | undefined, envIntensity = 1,
+): void {
+  const map = env?.map ?? null;
+  if (flips(m.envMap, map)) m.needsUpdate = true;
+  m.envMap = map;
+  m.envMapIntensity = env ? env.intensity * envIntensity : envIntensity;
+}
+
 /** Patch `m` in place from `mat`. Cached materials must never be recreated —
-    mesh material arrays hold references to them. */
-export function applyLibMaterial(m: THREE.MeshPhysicalMaterial, mat: LibMaterial): void {
+    mesh material arrays hold references to them. Pass `env` so the material
+    carries its own envMap and the envIntensity scalar actually applies (see
+    EnvBinding); without it the scalar is dead weight under scene lighting. */
+export function applyLibMaterial(
+  m: THREE.MeshPhysicalMaterial, mat: LibMaterial, env?: EnvBinding,
+): void {
   const maps = resolveMaps(mat);
   const roughnessMap = maps.orm ?? maps.roughness;
 
@@ -66,7 +89,7 @@ export function applyLibMaterial(m: THREE.MeshPhysicalMaterial, mat: LibMaterial
   m.color.set(mat.color);
   m.roughness = mat.roughness;
   m.metalness = mat.metalness;
-  m.envMapIntensity = mat.envIntensity;
+  bindEnvMap(m, env, mat.envIntensity);
   m.emissive.set(mat.emissive);
   m.emissiveIntensity = mat.emissiveIntensity;
   if (clearcoatFlips(m.clearcoat, mat.clearcoat)) m.needsUpdate = true;
