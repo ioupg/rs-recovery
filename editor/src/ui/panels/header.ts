@@ -4,6 +4,7 @@
 
 import type { UiContext } from '../context';
 import { MODE_DEFS, TOOL_DEFS } from '../../editor/tools';
+import { TOOL_ICONS } from '../icons';
 import { button, divider, h } from '../dom';
 
 type ToggleKey = 'edges' | 'compColors' | 'textures' | 'ao' | 'plates';
@@ -51,7 +52,8 @@ export function buildHeader(host: HTMLElement, ctx: UiContext): void {
   const toolGroup = h('div', 'group');
   const toolBtns = new Map<string, HTMLButtonElement>();
   for (const t of TOOL_DEFS) {
-    const b = button(t.icon, { title: `${t.name} (${t.key})`, class: 'icon-btn' });
+    const b = button('', { title: `${t.name} (${t.key})`, class: 'icon-btn' });
+    b.innerHTML = TOOL_ICONS[t.id];
     b.onclick = () => ctx.state.update({ tool: t.id });
     toolBtns.set(t.id, b);
     toolGroup.append(b);

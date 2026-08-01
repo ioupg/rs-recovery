@@ -130,6 +130,9 @@ export interface ThumbSpec {
   color: string;
   /** raw cell-space submeshes for kind 'mesh' (plates, cages) */
   sub?: { pos: number[]; nrm?: number[]; idx: number[] }[];
+  /** turn the mesh 180° about Y first — plates author their relief to −z,
+      which would otherwise face away from the thumbnail camera */
+  flip?: boolean;
 }
 
 let thumb: {
@@ -191,8 +194,14 @@ export function renderThumbnail(spec: ThumbSpec, size = 56): string {
     const ext = bb.getSize(new THREE.Vector3()).length() || 1;
     const mesh = new THREE.Mesh(geo, material);
     mesh.position.copy(c.negate());
+    /* schematic linework, same voice as the shape/wing thumbnails */
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo, 25),
+      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6 }));
+    edges.position.copy(mesh.position);
     const wrap = new THREE.Group();
-    wrap.add(mesh);
+    wrap.add(mesh, edges);
+    if (spec.flip) wrap.rotation.y = Math.PI;
     wrap.scale.setScalar(1.55 / ext);
     t.content.add(wrap);
   } else {

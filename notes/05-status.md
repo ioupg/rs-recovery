@@ -4,6 +4,24 @@
 · https://rs.ioupg.com/editor/ (constructor)
 **Repo:** working tree clean, deployed build matches the viewer at HEAD.
 
+## Editor v2 (2026-07-31)
+
+Full UX overhaul + extensibility: requirements/decisions in
+`06-editor-v2.md`, part-authoring contract + Blender template in
+`07-authoring.md` (+ `templates/authoring-template.glb`,
+`make_authoring_template.py`). Highlights: English chrome, SVG icon toolbar,
+load-template modal, contextual right panel with visual pickers
+(shapes+wings unified, plate meshes with relief-facing schematic
+thumbnails), view cube (quad layout removed), X/C/V rotate + Alt mirror on
+all three axes (REFLECT tables generalized), Systems tool/view (tint ON =
+plain system-colored cages; OFF = authentic untinted palette), per-face
+plate mesh assignment (`Cube.plateKinds` through the plate registry),
+per-texture surface PBR editor (`SurfaceStore`, persisted as `surfaces`),
+systems registry (ids ≥ 10 JSON-only) and lattice/deco/guy engine
+prototypes (`ShipDoc.extras`, render-only). A selection rotation gizmo was
+tried twice and dropped by user decision. Normal-map sign chain verified
+consistent (green = −Sobel-dy ↔ flipY=false derivative frame).
+
 ## The constructor (2026-07-30)
 
 `editor/` is a Vite + TypeScript + three r185 app deployed to `/editor/` —

@@ -25,6 +25,7 @@ import {
   centroid, collectFacets, cross, cullFacets, dot, facetNormal, len, norm, orient, sub,
   type Facet, type V3,
 } from './facets';
+import { emitExtras } from './extras';
 
 /* plates drop into the open window each hull shell leaves on its face; the
    margin keeps the plate edge off the rim so the two never fight for pixels */
@@ -510,6 +511,21 @@ function addWingSkins(
   return skinned;
 }
 
+/** prototype extras (lattice trusses, guylines, attached deco) — structural,
+    so they render in every mode; struts wear the hull material, deco carries
+    its own textures. UVs default to the blank atlas cell in plate mode. */
+function addExtras(
+  b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy,
+  aoOn: boolean, texOn: boolean, uvBlank: boolean,
+): void {
+  if (!doc.extras?.length) return;
+  const slot = compSlot(HULL_COMP);
+  emitExtras((p, n, uv, tex) => {
+    b.vertex(slot, p, n, aoOn ? vertexAO(p, n, occ, null) : 1,
+      uv ?? (uvBlank ? BLANK_UV : undefined), tex);
+  }, doc.extras, data, texOn);
+}
+
 /** naked-mode pick shrink — matches the module cages so rays slip between
     cells and reach interior systems */
 export const NAKED_PICK_SCALE = MODULE_SCALE;
@@ -526,6 +542,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     const b = new SlotBuckets(opts.textures);
     addModules(b, doc, data, occ, opts.ao, opts.textures, true);
     addWings(b, doc, occ, opts.ao, opts.textures, true);
+    addExtras(b, doc, data, occ, opts.ao, opts.textures, false);
     const { geometry, groupSlots, groupTex } = b.build();
     const kept = cullFacets(collectFacets(doc.cubes));
     const frame = fanGeometry(kept.map(f => f.verts));
@@ -549,6 +566,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     const skinned = addWingSkins(b, doc, data, occ, opts.ao, opts.textures);
     addWings(b, { ...doc, wings: doc.wings.filter((_, i) => !skinned.has(i)) },
       occ, opts.ao, opts.textures, true);
+    addExtras(b, doc, data, occ, opts.ao, opts.textures, false);
     const { geometry, groupSlots, groupTex } = b.build();
     /* the detail meshes carry every crease worth tracing themselves */
     return { geometry, groupSlots, groupTex, edges: geometry, edgesThreshold: 32 };
@@ -584,6 +602,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   }
 
   const wingLoops = addWings(b, doc, occ, opts.ao, plate);
+  addExtras(b, doc, data, occ, opts.ao, false, plate);
   const { geometry, groupSlots, groupTex } = b.build();
 
   /* accent lines trace the facet outlines — when chamfered, the bevel strips

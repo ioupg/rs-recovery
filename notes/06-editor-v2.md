@@ -123,11 +123,12 @@ normal (the free decoration parameter). Per-face mesh choice is stored as a
 `plateVariants` extension in the doc/JSON (the archive never stored variants,
 so this is an editor-only field; absent = default mesh).
 
-### R11 — Rotation gizmo (second step)
-Keyboard rotation lands first (R6). A **mouse rotation gizmo** — three axis
-rings over the selection/ghost, drag snaps to 90° steps — follows once the
-contextual panel is in. Mirror buttons in the panel cover the mouse-only user
-until then.
+### R11 — Rotation gizmo (tried and dropped)
+Two variants were built and shown live — free drag-rings and discrete
+click-to-step arrows per axis — and both were judged not useful enough for
+the 24-element group (2026-07-31, user decision). **Rotation lives on
+X/C/V + Alt mirror + the panel button rows.** Revisit only with a genuinely
+better idiom.
 
 ---
 

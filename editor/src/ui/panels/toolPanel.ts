@@ -207,12 +207,12 @@ export function buildToolPanel(host: HTMLElement, ctx: UiContext): { preview: HT
     quadSection.append(h('h3', undefined, 'quad faces'));
     const quadGrid = h('div', 'item-grid');
     mkCard(quadGrid, null, 'default',
-      renderThumbnail({ kind: 'mesh', color: plateColor,
+      renderThumbnail({ kind: 'mesh', color: plateColor, flip: true,
         sub: ctx.data.plates.defaultFor('quad')?.mesh.sub ?? [] }),
       'Face default (the flat panel)');
     for (const def of ctx.data.plates.byFaceType('quad'))
       mkCard(quadGrid, def.id, def.name,
-        renderThumbnail({ kind: 'mesh', color: plateColor, sub: def.mesh.sub }),
+        renderThumbnail({ kind: 'mesh', color: plateColor, flip: true, sub: def.mesh.sub }),
         `${def.name} · ${def.tris} tris`);
     quadSection.append(quadGrid);
     p.append(quadSection);
@@ -223,7 +223,7 @@ export function buildToolPanel(host: HTMLElement, ctx: UiContext): { preview: HT
     for (const t of ['tri', 'slope', 'diag', 'cut'] as const)
       for (const def of ctx.data.plates.byFaceType(t))
         mkCard(otherGrid, def.id, `${t} ${def.name}`,
-          renderThumbnail({ kind: 'mesh', color: plateColor, sub: def.mesh.sub }),
+          renderThumbnail({ kind: 'mesh', color: plateColor, flip: true, sub: def.mesh.sub }),
           `${def.name} · ${def.tris} tris`);
     otherSection.append(otherGrid);
     p.append(otherSection);

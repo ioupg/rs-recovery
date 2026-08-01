@@ -189,6 +189,35 @@ describe('per-face plate mesh override', () => {
   });
 });
 
+describe('extras prototypes render in every mode', () => {
+  const withExtras: ShipDoc = {
+    ...doc,
+    extras: [
+      { uid: 900, kind: 'lattice', from: [0, 0, 5], to: [0, 0, 9], profile: 'square', chord: 0.08, brace: 0.04 },
+      { uid: 901, kind: 'guy', a: { cell: [0, 0, 5], corner: 7 }, b: { cell: [0, 0, 9], corner: 1 }, sag: 0.2 },
+      { uid: 902, kind: 'deco', meshId: 'm1*power', anchor: { cell: [0, 1, 0], face: 2, offset: [0.5, 0.5] }, o: 0 },
+    ],
+  };
+
+  it('adds triangles beyond the bare hull in box, plate and mesh modes', () => {
+    for (const mode of ['box', 'plate', 'mesh'] as const) {
+      const bare = buildShipGeometry(doc, data, opts({ mode }));
+      const full = buildShipGeometry(withExtras, data, opts({ mode }));
+      expect(full.geometry.getAttribute('position').count)
+        .toBeGreaterThan(bare.geometry.getAttribute('position').count);
+      expect(full.geometry.getAttribute('position').count % 3).toBe(0);
+    }
+  });
+
+  it('struts land in the hull slot with unit normals', () => {
+    const full = buildShipGeometry(withExtras, data, opts({ mode: 'box' }));
+    expect(full.groupSlots).toContain('comp8');
+    const nrm = full.geometry.getAttribute('normal').array;
+    for (let i = 0; i < nrm.length; i += 3)
+      expect(Math.hypot(nrm[i], nrm[i + 1], nrm[i + 2])).toBeGreaterThan(0.5);
+  });
+});
+
 describe('buildPickGeometry', () => {
   it('one PickTri per triangle, axis-aligned faces carry an exit step', () => {
     const { geometry, tris } = buildPickGeometry(winged);

@@ -207,7 +207,20 @@ Single perspective viewport (the quad/ortho layout was removed in v2 — view
 snapping replaced it). Controls: **MMB or Alt+LMB** orbit, **RMB** pan,
 **wheel** zoom — LMB belongs to tools. Damped orbit feel from viewer 716-734.
 `ViewCube` (render/viewCube.ts) is a 2D-canvas overlay: click a face to snap,
-drag to orbit, ⌂ fits.
+drag to orbit, ⌂ fits. (A selection rotation gizmo was tried and dropped
+by user decision — rotation lives on X/C/V + the panel buttons.)
+
+### Surface textures + per-face plates (v2)
+
+`SurfaceStore` (core/materials.ts) holds one `SurfaceDef` per archive texture
+(normalScale, roughnessK/metalnessK multipliers over the slot material,
+envIntensity, tint); `MaterialCache` applies it live and `exportShipJson`
+embeds the diff as `surfaces`. `Cube.plateKinds` (7 registry ids parallel to
+slots) selects a per-face plate mesh; the geometry builder resolves it
+through `data.plates` with face-type matching, and the Plates tool mounts /
+swaps / removes with the panel's visual picker. The Systems (naked) view
+shows plain cages tinted per system when the tint toggle is on; toggling it
+off restores the authentic untinted `system_colors` palette.
 
 ### scene.ts
 

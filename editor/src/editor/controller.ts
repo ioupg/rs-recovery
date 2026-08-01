@@ -96,6 +96,7 @@ export class EditorController {
     });
   }
 
+
   /** tools that edit state invisible in the current view switch the view and
       restore it (unless the user changed modes themselves meanwhile) */
   private applyAutoViewMode(): void {
@@ -256,7 +257,7 @@ export class EditorController {
       startX: e.clientX, startY: e.clientY, uid, additive: e.shiftKey,
       dragging: false, plane, startPoint: point.clone(), delta: [0, 0, 0],
     };
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    try { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); } catch { /* synthetic events have no active pointer */ }
   }
 
   private verticalPlane(through: THREE.Vector3, camera: THREE.Camera): THREE.Plane {

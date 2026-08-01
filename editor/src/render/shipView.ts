@@ -108,14 +108,22 @@ export class ShipView {
     };
     const built = buildShipGeometry(doc, this.data, opts);
     const textured = opts.mode === 'plate' && opts.textures;
+    const naked = opts.mode === 'naked';
     const materials = built.groupSlots.map((slot, i) => {
       const resolved: MaterialSlot =
         slot !== 'wing' && !this.options.compColors ? compSlot(HULL_COMP) : slot;
-      const map = built.groupTex[i] ?? null;
+      const rawMap = built.groupTex[i] ?? null;
+      const palette = rawMap === 'system_colors.png';
       /* system_colors carries the 2014 engine's own system palette — tinting
-         it would recolour the modules it exists to colour */
+         it would recolour the modules it exists to colour. In the Systems
+         view the palette's pastels drown the per-system reading, so tint ON
+         drops the map and shows plain cages in their strong system colors;
+         tint OFF keeps the authentic untinted palette. */
+      const map = naked && palette && this.options.compColors ? null : rawMap;
       return this.cache.get(resolved, {
-        textured, map, untinted: (map === 'system_colors.png' && this.options.compColors) || map === 'wing_solar',
+        textured, map,
+        untinted: (palette && map !== null && (naked || this.options.compColors))
+          || rawMap === 'wing_solar',
       });
     });
 

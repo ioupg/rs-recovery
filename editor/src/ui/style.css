@@ -27,9 +27,10 @@ body { font-family: var(--mono); font-size: 12px; }
 
 /* ── header ─────────────────────────────────────────── */
 .topbar {
-  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; row-gap: 6px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px;
   padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; user-select: none;
 }
+.topbar .group button { align-self: stretch; }
 .topbar .star { color: var(--star); font-size: 15px; }
 .topbar h1 {
   font-family: var(--disp); font-weight: 600; font-size: 14px;
@@ -68,7 +69,8 @@ main { flex: 1; display: flex; min-height: 0; }
 .stage { flex: 1; position: relative; min-width: 0; background: var(--void); }
 
 /* icon tool buttons */
-.icon-btn { font-size: 14px; padding: 3px 8px; line-height: 1.4; }
+.icon-btn { padding: 4px 8px; line-height: 0; }
+.icon-btn svg { display: block; }
 
 /* view cube gizmo */
 .viewcube {
@@ -151,13 +153,16 @@ main { flex: 1; display: flex; min-height: 0; }
 .tool-hint { color: var(--dim); font-size: 11px; line-height: 1.5; margin-bottom: 12px; }
 .sel-info { color: var(--ink); font-size: 11px; margin-bottom: 10px; }
 
-.item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.item-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 .item-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 5px 2px 4px;
+  padding: 5px 2px 4px; min-width: 0;
 }
-.item-btn img { width: 56px; height: 56px; display: block; }
-.item-btn .item-name { font-size: 9px; letter-spacing: .06em; color: var(--dim); }
+.item-btn img { width: 52px; height: 52px; display: block; max-width: 100%; }
+.item-btn .item-name {
+  font-size: 9px; letter-spacing: .04em; color: var(--dim); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .item-btn.active { border-color: var(--brass); }
 .item-btn.active .item-name { color: var(--brass); }
 
