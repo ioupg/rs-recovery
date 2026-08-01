@@ -1,5 +1,6 @@
 {
-  "//": "Curated app-level PBR material library. Copied to editor/public/materials/ by the vite data plugin. Entries are sparse — core/library.ts normalizeMaterial() fills defaults (see LIB_DEFAULTS). Texture sets live in materials/<id>/ with maps paths like 'materials/<id>/albedo.png'; see notes/08-materials.md for the provision convention. An entry whose id matches an archive texture name re-tunes that legacy wrap.",
+  "//": "Curated app-level PBR material library. Copied to editor/public/materials/ by the vite data plugin. Hand-authored entries are sparse — core/library.ts normalizeMaterial() fills defaults (see LIB_DEFAULTS); the editor's 'Export library' writes the dense normalized form. version = MATERIALS_JSON_VERSION (core/library.ts). Texture sets live in materials/<id>/ with maps paths like 'materials/<id>/albedo.png'; see notes/08-materials.md for the provision convention. An entry whose id matches an archive texture name re-tunes that legacy wrap.",
+  "version": 1,
   "materials": [
     { "id": "bare-metal", "name": "Bare metal", "maps": {}, "color": "#c8cdd2", "roughness": 0.35, "metalness": 0.95 },
     { "id": "dark-steel", "name": "Dark steel", "maps": {}, "color": "#4d5359", "roughness": 0.45, "metalness": 0.85 },

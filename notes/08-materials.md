@@ -29,13 +29,18 @@ itself (identity; every archive texture has a legacy wrap by design). When
 mesh geometry groups triangles by `(slot, archive texture name)`, MaterialCache
 resolves the texture name through `assignments.get(name)` to a library material
 id, then looks it up in the library. Assignments persist to the ship JSON's
-`assignments` key; the old `surfaces` key is ignored on import with a console
-note.
+`assignments` key with namespaced keys — `tex:<name>` today, so future
+assignment domains (GLB material names, flood-fill regions) get their own
+prefixes instead of a format break. Values are the material id, bare or
+wrapped as `{id, …}` — the object form is reserved room for per-assignment
+overrides and is already accepted on import. Import also accepts bare
+pre-namespace keys, logs-and-skips unknown namespaces, and ignores the old
+`surfaces` key with a console note.
 
 **Persistence:** MaterialLibrary emits change events; main.ts subscribes and
 serializes `library.diff()` (fields changed from shipped defaults) to localStorage
-whenever the library changes. On startup, the library loads defaults and applies
-the overlay. Users export tweaks back into materials.json via the browser UI
+on a 300 ms debounce with a `pagehide` flush — per-change writes janked slider
+drags. On startup, the library loads defaults and applies the overlay. Users export tweaks back into materials.json via the browser UI
 "Export library" button (downloads the JSON); committing the download updates
 `materials/materials.json`.
 
@@ -89,8 +94,13 @@ relative: `materials/<id>/albedo.png`, `materials/<id>/normal.png`, etc.
 }
 ```
 
-All scalars except `maps` have defaults in LIB_DEFAULTS; omit them from the
-materials.json entry to keep the file sparse and legible.
+All scalars except `maps` have defaults in LIB_DEFAULTS; hand-authored entries
+may omit them (normalizeMaterial fills the gaps at load). "Export library"
+writes the full normalized form — every field explicit, plus a top-level
+`version` stamp (`MATERIALS_JSON_VERSION`, core/library.ts; the loader warns
+on a newer version and loads the fields it knows) — trading hand-edit
+sparseness for a fixed-point export: re-shipping an export and exporting
+again is byte-identical.
 
 ## 3. Deferred decisions (recorded 2026-08-01)
 
@@ -138,4 +148,5 @@ pure color/roughness/metalness definitions.
 5. Test in the editor: load a ship, switch to mesh mode, open Materials panel, click
    a texture name to open the browser. Your new material appears in the grid.
 6. Tweak scalars (roughness, metalness, normal strength, etc.) in the preview.
-7. Click "Export library" to download the updated materials.json and commit it.
+7. Click "Export library" to download the updated materials.json (dense
+   normalized form, version-stamped) and commit it.

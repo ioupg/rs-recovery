@@ -22,6 +22,10 @@ export const LIB_DEFAULTS: Omit<LibMaterial, 'id' | 'name' | 'maps'> = {
   uvRotation: 0,
 };
 
+/** materials.json format version, stamped by exportJson and checked on load;
+    bump only on breaking shape changes — loaders tolerate same-or-older */
+export const MATERIALS_JSON_VERSION = 1;
+
 export type LibMaterialSpec = Partial<LibMaterial> & { id: string };
 
 /** fill a sparse def (materials.json entry) up to a complete LibMaterial */
@@ -157,7 +161,7 @@ export class MaterialLibrary {
         return !base || differs(m, base);
       })
       .map(m => ({ ...m, maps: { ...m.maps } }));
-    return JSON.stringify({ materials: mats }, null, 2);
+    return JSON.stringify({ version: MATERIALS_JSON_VERSION, materials: mats }, null, 2);
   }
 
   subscribe(fn: (kind: ChangeKind) => void): Unsubscribe {

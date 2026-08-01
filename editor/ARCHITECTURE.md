@@ -30,14 +30,14 @@ viewer (`../viewer`). Build: `npm run build` → `../viewer/editor` (deployed by
 ## Module map
 
 ```
-src/core/    types.ts tables.ts materials.ts systems.ts   (read them first)
+src/core/    types.ts tables.ts materials.ts systems.ts library.ts   (read them first)
              model.ts commands.ts history.ts symmetry.ts validation.ts io.ts
-src/data/    loader.ts plates.ts
+src/data/    loader.ts plates.ts libraryStore.ts
 src/render/  scene.ts materialCache.ts textureCache.ts geometry.ts ao.ts
              atlas.ts facets.ts pick.ts shipView.ts viewports.ts viewCube.ts
-             shapePreview.ts exportGlb.ts
+             shapePreview.ts exportGlb.ts libMaterial.ts
 src/editor/  state.ts tools.ts controller.ts symmetryExpand.ts
-src/ui/      style.css ui.ts context.ts dom.ts panels/*.ts
+src/ui/      style.css ui.ts context.ts dom.ts materialBrowser.ts panels/*.ts
 src/main.ts  (integration)
 ```
 
@@ -233,15 +233,23 @@ is a per-ship sparse map of texture name → library material id (default:
 identity). MaterialCache resolves mesh-mode triangles grouped by (slot, archive
 texture name) through `assignments.get(name)` to a library id, then renders
 the library material with library-driven PBR (maps, normals, metalness, roughness,
-envIntensity, etc.); `exportShipJson` embeds the diff as `assignments` (old
-`surfaces` key ignored on import). Map-less modes (plate/atlas/schematic) keep
+envIntensity, etc.); `exportShipJson` embeds the diff as `assignments` with
+namespaced keys — `tex:<name>` today, future domains (GLB material names,
+flood-fill regions) get their own prefixes instead of a format break — and
+values that are a material id, bare or `{id, …}` (the object form is reserved
+room for per-assignment overrides, already accepted on import). Import also
+accepts bare pre-namespace keys, logs-and-skips unknown namespaces, and
+ignores the old `surfaces` key. Map-less modes (plate/atlas/schematic) keep
 the MaterialStore slot-def behavior unchanged (color/roughness/metalness/
 emissive/clearcoat from per-slot defs, atlas texture when textured). `Cube.plateKinds`
 (7 registry ids parallel to slots) selects a per-face plate mesh; the geometry
 builder resolves it through `data.plates` with face-type matching, and the Plates
 tool mounts / swaps / removes with the panel's visual picker. The Systems (naked)
-view renders system cages over a translucent hull silhouette (no cage tinting
-— cages are untinted by design).
+view renders system cages over a translucent hull silhouette; the header
+"Tint by system" toggle (`render.compColors`, default on) shows cages in their
+strong per-system colors — dropping the system_colors.png palette map, whose
+pastels drown the reading — while toggling it off remaps cages to the hull
+material wearing the authentic palette texture (shipView.ts rebuild()).
 
 ### scene.ts
 
@@ -318,5 +326,10 @@ a "saved designs — this browser" section on top lists localStorage saves
 ship JSON so save/load shares the io path) with load + delete. Header Save =
 save to browser storage (prompted name, overwrite allowed); Export = JSON
 file download.
-Materials tab: slot list (from the systems registry) with color swatch +
-sliders. Info: ГОСТ-stamp ship card + system ledger + validation issues.
+Materials tab: 2-column assignment grid (archive texture → assigned library
+material; click opens the material browser targeting that texture; entering
+the tab auto-switches to textured mesh view, restored on leave unless the
+user changed modes manually) + Library… button (browse/tweak modal,
+ui/materialBrowser.ts) + Schematic colors section (unchanged MaterialStore
+slot-def sliders for the map-less modes). Info: ГОСТ-stamp ship card +
+system ledger + validation issues.

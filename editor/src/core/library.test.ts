@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  LIB_DEFAULTS, MaterialLibrary, buildLibraryDefaults, legacyMaterials, normalizeMaterial,
+  LIB_DEFAULTS, MATERIALS_JSON_VERSION, MaterialLibrary, buildLibraryDefaults, legacyMaterials,
+  normalizeMaterial,
 } from './library';
 import type { LibMaterialSpec } from './library';
 import type { LibMaterial } from './types';
@@ -243,6 +244,12 @@ describe('MaterialLibrary', () => {
   });
 
   describe('exportJson', () => {
+    it('stamps the format version', () => {
+      const lib = new MaterialLibrary(defs());
+      const { version } = JSON.parse(lib.exportJson()) as { version: number };
+      expect(version).toBe(MATERIALS_JSON_VERSION);
+    });
+
     it('omits untouched legacy wraps but always includes curated entries', () => {
       const lib = new MaterialLibrary(defs());
       const { materials } = JSON.parse(lib.exportJson()) as { materials: LibMaterial[] };

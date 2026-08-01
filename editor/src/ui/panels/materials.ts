@@ -40,9 +40,11 @@ function resolveAssigned(ctx: UiContext, name: string): LibMaterial | undefined 
 
 /** 2-column swatch grid, one cell per archive texture — big samples, text
     demoted to a caption + hover tooltip. Click opens the material browser
-    targeting that texture; hover glows every ship face wearing it (the tab
-    guarantees the textured mesh view, so the glow is always visible). The
-    Library… button opens the browser in plain browse/tweak mode. */
+    targeting that texture; hover glows every ship face wearing it (entering
+    the tab switches to the textured mesh view; the glow goes dark if the
+    user then picks another view mode from the header — rightPanel treats
+    that as manual override and stops enforcing the mode). The Library…
+    button opens the browser in plain browse/tweak mode. */
 function buildAssignmentSection(host: HTMLElement, ctx: UiContext): void {
   const head = h('div', 'mat-sechead');
   const libBtn = button('Library…');
