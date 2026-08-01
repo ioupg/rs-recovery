@@ -116,22 +116,71 @@ describe('exportShipJson — archive field regeneration', () => {
 });
 
 describe('assignments (mesh-mode texture-name → library-material-id remaps)', () => {
-  it('round-trips through importShipJson → exportShipJson → importShipJson', () => {
+  const CUBE = { o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 };
+
+  it('round-trips: doc keys are raw texture names, JSON keys are tex:-namespaced', () => {
     const doc = importShipJson({
-      cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }],
-      assignments: { 'craftHull.bmp': 'brushed-steel' },
+      cubes: [CUBE],
+      assignments: { 'tex:craftHull.bmp': 'brushed-steel' },
     }, 'ship');
     expect(doc.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
 
     const exported = exportShipJson(doc, emptySlotDefaults()) as { assignments?: Record<string, string> };
-    expect(exported.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+    expect(exported.assignments).toEqual({ 'tex:craftHull.bmp': 'brushed-steel' });
 
     const back = importShipJson(exported, 'ship');
     expect(back.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
   });
 
+  it('accepts pre-namespace docs with bare texture-name keys', () => {
+    const doc = importShipJson({
+      cubes: [CUBE],
+      assignments: { 'craftHull.bmp': 'brushed-steel' },
+    }, 'ship');
+    expect(doc.assignments).toEqual({ 'craftHull.bmp': 'brushed-steel' });
+  });
+
+  it('accepts the widened {id, …} value form and takes the id', () => {
+    const doc = importShipJson({
+      cubes: [CUBE],
+      assignments: {
+        'tex:craftHull.bmp': { id: 'brushed-steel', uvScale: 2 },  // future extras tolerated
+        'tex:panel_tech_1.bmp': 'bare-id',
+      },
+    }, 'ship');
+    expect(doc.assignments).toEqual({
+      'craftHull.bmp': 'brushed-steel',
+      'panel_tech_1.bmp': 'bare-id',
+    });
+  });
+
+  it('skips unknown namespaces (forward compat) and malformed values, with a console note', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const doc = importShipJson({
+      cubes: [CUBE],
+      assignments: {
+        'glb:EngineHousing': 'brushed-steel',   // future domain — not ours to interpret
+        'tex:craftHull.bmp': 42,                // malformed value
+        'tex:panel_tech_1.bmp': 'kept',
+      },
+    }, 'ship');
+    expect(doc.assignments).toEqual({ 'panel_tech_1.bmp': 'kept' });
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    infoSpy.mockRestore();
+  });
+
+  it('an assignments block that decodes to nothing leaves the doc without one', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const doc = importShipJson({
+      cubes: [CUBE],
+      assignments: { 'glb:EngineHousing': 'brushed-steel' },
+    }, 'ship');
+    expect(doc.assignments).toBeUndefined();
+    infoSpy.mockRestore();
+  });
+
   it('is absent from the doc and omitted from export when the ship JSON has none', () => {
-    const doc = importShipJson({ cubes: [{ o: 0, x: 0, y: 0, z: 0, shape: 0, comp: 8 }] }, 'ship');
+    const doc = importShipJson({ cubes: [CUBE] }, 'ship');
     expect(doc.assignments).toBeUndefined();
     const exported = exportShipJson(doc, emptySlotDefaults()) as { assignments?: unknown };
     expect('assignments' in exported).toBe(false);

@@ -165,7 +165,9 @@ export interface ShipDoc {
   /** per-slot overrides of the default material set, embedded on export */
   materials?: Partial<MaterialSet>;
   /** archive texture name → library material id (mesh mode); identity
-      (name = id, the legacy wrap) is the default and never stored */
+      (name = id, the legacy wrap) is the default and never stored. The JSON
+      encoding namespaces the keys (`tex:<name>`) and may wrap the value as
+      {id, …} — io.ts translates both ways. */
   assignments?: Record<string, string>;
   /** lattice/deco/guy prototypes — JSON extension, absent on archive ships */
   extras?: ExtraElement[];

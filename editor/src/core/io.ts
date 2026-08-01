@@ -30,8 +30,8 @@ interface ImportJsonShape {
   elements?: JsonWing[];
   meta?: Partial<ShipMeta>;
   materials?: Partial<MaterialSet>;
-  /** archive texture name → library material id */
-  assignments?: Record<string, string>;
+  /** namespaced assignment key → library material id (see the codec below) */
+  assignments?: JsonAssignments;
   /** pre-library per-texture tuning (2026-07 era docs) — obsolete, ignored */
   surfaces?: unknown;
   /** lattice/deco/guy prototypes, notes/07-authoring.md §4.3 (uids reassigned) */
@@ -42,6 +42,33 @@ function isImportJsonShape(json: unknown): json is ImportJsonShape {
   if (typeof json !== 'object' || json === null) return false;
   return Array.isArray((json as { cubes?: unknown }).cubes);
 }
+
+/* ── assignment encoding ──────────────────────────────────────
+   In memory an assignment maps an archive TEXTURE NAME to a library material
+   id, but the JSON keyspace is namespaced — `tex:<name>` today — so future
+   assignment domains (GLB material names, flood-fill regions, …) get their
+   own prefixes instead of a format break. Values are the material id, either
+   bare or wrapped as {id, …}: the object form is reserved room for
+   per-assignment overrides (UV etc.) and is already accepted on import. */
+
+const TEX_NS = 'tex:';
+
+type JsonAssignments = Record<string, string | { id: string }>;
+
+function decodeAssignments(json: JsonAssignments): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const [key, v] of Object.entries(json)) {
+    const id = typeof v === 'string' ? v : v?.id;
+    if (typeof id !== 'string') continue;
+    if (key.startsWith(TEX_NS)) out[key.slice(TEX_NS.length)] = id;
+    else if (!key.includes(':')) out[key] = id;   // pre-namespace docs: bare texture names
+    else console.info(`ship JSON assignment "${key}" uses an unknown namespace — ignored`);
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+const encodeAssignments = (a: Record<string, string>): JsonAssignments =>
+  Object.fromEntries(Object.entries(a).map(([name, id]) => [TEX_NS + name, id]));
 
 /** ShipEntry's RawCube already carries every archive field required by
     ImportJsonShape's cubes, so both import paths share this mapping. */
@@ -95,7 +122,10 @@ export function importShipJson(json: unknown, fallbackName: string): ShipDoc {
   };
   const doc: ShipDoc = { meta, cubes, wings };
   if (json.materials) doc.materials = json.materials;
-  if (json.assignments) doc.assignments = json.assignments;
+  if (json.assignments) {
+    const assignments = decodeAssignments(json.assignments);
+    if (assignments) doc.assignments = assignments;
+  }
   if (json.surfaces)
     console.info('ship JSON carries pre-library "surfaces" tuning — ignored '
       + '(mesh materials are library-driven now; reassign via the material browser)');
@@ -132,10 +162,10 @@ export function exportShipJson(doc: ShipDoc, slotDefaults: PlateSlot[][]): unkno
   const out: {
     cubes: RawCube[]; elements: unknown[]; meta: ShipMeta;
     materials?: Partial<MaterialSet>;
-    assignments?: Record<string, string>; extras?: unknown[];
+    assignments?: JsonAssignments; extras?: unknown[];
   } = { cubes, elements, meta: { ...doc.meta } };
   if (doc.materials) out.materials = doc.materials;
-  if (doc.assignments) out.assignments = doc.assignments;
+  if (doc.assignments) out.assignments = encodeAssignments(doc.assignments);
   if (doc.extras?.length)
     out.extras = doc.extras.map(({ uid: _uid, ...rest }) => rest);
   return out;
