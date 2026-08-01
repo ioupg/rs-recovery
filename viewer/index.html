@@ -1066,9 +1066,14 @@ const FLIGHTS = [];
 const easeInQuart = t => t*t*t*t;
 const easeOutQuint = t => 1 - Math.pow(1-t, 5);
 function groupFade(g, k) {
+  /* alpha on a hollow multi-layer hull x-rays its interior (the "cage"
+     look), so a group at full strength stays on the opaque render path —
+     translucency exists only while actually fading, which the flight curves
+     confine to the far/fast stretch where it reads as a warp streak */
   g.traverse(o => { const m = o.material; if (!m) return;
     if (m.userData.trBase === undefined) { m.userData.trBase = m.opacity; m.userData.trFlag = m.transparent; }
-    m.transparent = true; m.opacity = m.userData.trBase * k; });
+    m.transparent = k > .999 ? m.userData.trFlag : true;
+    m.opacity = m.userData.trBase * k; });
 }
 function groupUnfade(g) {
   g.traverse(o => { const m = o.material; if (!m || m.userData.trBase === undefined) return;
@@ -1107,12 +1112,18 @@ function stepFlights(now) {
   for (let i = FLIGHTS.length-1; i >= 0; i--) {
     const f = FLIGHTS[i], t = Math.min(1, (now - f.t0) / f.dur);
     if (f.mode === 'out') {
-      f.g.position.z = f.cz + f.z0 + f.D * easeInQuart(t);
-      groupFade(f.g, (1-t)*(1-t));
+      /* fade rides the distance covered, not the clock: fully solid until
+         ~20% of the run is behind it, gone by the far end */
+      const p = easeInQuart(t);
+      f.g.position.z = f.cz + f.z0 + f.D * p;
+      groupFade(f.g, Math.min(1, (1-p)*1.25));
       if (t >= 1) { FLIGHTS.splice(i, 1); disposeGroup(f.g); }
     } else {
-      f.g.position.z = f.cz - f.D * (1 - easeOutQuint(t));
-      groupFade(f.g, Math.min(1, t*2.2));
+      /* mirrored: materialises over the approach, fully solid for the last
+         ~13% of the distance — the near phase never blends */
+      const p = easeOutQuint(t);
+      f.g.position.z = f.cz - f.D * (1 - p);
+      groupFade(f.g, Math.min(1, p*1.15));
       if (t >= 1) { FLIGHTS.splice(i, 1); f.g.position.z = f.cz; groupUnfade(f.g); }
     }
   }
