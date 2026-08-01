@@ -7,7 +7,7 @@
 
 import type { UiContext } from './context';
 import type { LibMaterial } from '../core/types';
-import { MaterialPreview, renderMaterialThumb } from '../render/shapePreview';
+import { acquireMaterialPreview, renderMaterialThumb } from '../render/shapePreview';
 import { subscribeTextureLoads } from '../render/textureCache';
 import { button, h } from './dom';
 
@@ -24,9 +24,15 @@ function slider(label: string, min: number, max: number, step: number):
   return { row, input, val };
 }
 
+/** one browser at a time — a second open (opener button still focused and
+    re-fired by Space/Enter, say) must not stack another modal */
+let browserOpen = false;
+
 export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string } = {}): void {
+  if (browserOpen) return;
   const entries = ctx.library.all();
   if (!entries.length) return; // nothing curated yet — defensive, shouldn't happen
+  browserOpen = true;
 
   let selectedId = opts.assignFor ? ctx.assignments.get(opts.assignFor) : entries[0].id;
   if (!ctx.library.byId(selectedId)) selectedId = entries[0].id;
@@ -36,6 +42,7 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   const modal = h('div', 'modal matlib-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-label', 'Material library');
+  modal.tabIndex = -1;   // else focus() is a no-op and the opener keeps focus
 
   const head = h('div', 'modal-head');
   const title = h('div', 'matlib-title');
@@ -74,18 +81,17 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   const right = h('div', 'matlib-right');
 
   const previewWrap = h('div', 'matlib-preview');
-  const canvas = document.createElement('canvas');
+  /* session singleton (WebGL contexts are precious) — re-parent its canvas
+     into this modal; closing detaches it, the context lives on */
+  const preview = acquireMaterialPreview();
+  const canvas = preview.canvas;
   canvas.className = 'matlib-canvas';
-  canvas.width = 260;
-  canvas.height = 260;
   const shapeToggle = h('div', 'seg matlib-shape');
   const sphereBtn = button('sphere');
   const cubeBtn = button('cube');
   shapeToggle.append(sphereBtn, cubeBtn);
   previewWrap.append(canvas, shapeToggle);
   right.append(previewWrap);
-
-  const preview = new MaterialPreview(canvas);
   const setShape = (s: 'sphere' | 'cube'): void => {
     preview.setShape(s);
     sphereBtn.classList.toggle('active', s === 'sphere');
@@ -206,6 +212,23 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
     if (c && m) c.img.src = renderMaterialThumb(m);
   };
 
+  /* thumb re-renders are a synchronous GPU render + readback each — coalesce
+     them to one batch per frame so a slider drag or texture-load burst costs
+     at most one render per dirty card per frame */
+  const dirtyThumbs = new Set<string>();
+  let thumbRaf = 0;
+  const scheduleCardThumb = (id: string): void => {
+    dirtyThumbs.add(id);
+    thumbRaf ||= requestAnimationFrame(() => {
+      thumbRaf = 0;
+      for (const id of dirtyThumbs) refreshCardThumb(id);
+      dirtyThumbs.clear();
+    });
+  };
+
+  const usesUrl = (m: LibMaterial, url: string): boolean =>
+    Object.values(m.maps).includes(url);
+
   const selectCard = (id: string): void => {
     selectedId = id;
     for (const [cid, c] of cards) c.btn.classList.toggle('active', cid === id);
@@ -228,15 +251,18 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   uvRotation.input.oninput = () => patch({ uvRotation: Number(uvRotation.input.value) });
 
   /* library/texture-load changes (ours or external) keep preview, sliders and
-     the selected card's thumb in sync */
+     the affected card thumbs in sync */
   const unsubLib = ctx.library.subscribe(() => {
     refreshTweaks();
     preview.update(currentMat());
-    refreshCardThumb(selectedId);
+    scheduleCardThumb(selectedId);
   });
-  const unsubTex = subscribeTextureLoads(() => {
-    preview.update(currentMat());
-    for (const id of cards.keys()) refreshCardThumb(id);
+  const unsubTex = subscribeTextureLoads(url => {
+    if (usesUrl(currentMat(), url)) preview.update(currentMat());
+    for (const id of cards.keys()) {
+      const m = ctx.library.byId(id);
+      if (m && usesUrl(m, url)) scheduleCardThumb(id);
+    }
   });
 
   resetBtn.onclick = () => ctx.library.reset(selectedId);
@@ -254,14 +280,20 @@ export function openMaterialBrowser(ctx: UiContext, opts: { assignFor?: string }
   };
 
   const onKey = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    if (e.key === 'Escape') close();
+    /* the modal is the top layer: no keydown may reach the editor hotkeys
+       behind it (Delete, tool keys, …). Native input behavior — typing,
+       slider arrows, Enter-clicks-button — is a default action, not a
+       listener, so it survives stopPropagation. */
+    e.stopPropagation();
   };
   function close(): void {
     unsubLib();
     unsubTex();
-    preview.dispose();
+    if (thumbRaf) cancelAnimationFrame(thumbRaf);
     window.removeEventListener('keydown', onKey, true);
-    backdrop.remove();
+    backdrop.remove();   // detaches the singleton preview canvas with it
+    browserOpen = false;
   }
 
   closeBtn.onclick = close;

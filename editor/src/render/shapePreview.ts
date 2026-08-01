@@ -8,7 +8,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { LibMaterial, ShapeId } from '../core/types';
 import { FACES, WING_RING, corner, rotDir } from '../core/tables';
-import { applyLibMaterial, buildPreviewMaterial } from './libMaterial';
+import { applyLibMaterial } from './libMaterial';
 
 export interface PreviewSpec {
   kind: 'cube' | 'wing';
@@ -270,33 +270,52 @@ function ensureThumbEnv(t: ReturnType<typeof thumbCtx>): void {
   pmrem.dispose();
 }
 
+/** one persistent sphere + material for every material thumbnail — a fresh
+    material per call would compile (and, on dispose, destroy) its shader
+    program every single time; patching one instance in place reuses the
+    program exactly like the cached ship materials do. Lives directly on the
+    thumb scene, hidden outside renders. */
+let matThumb: { mesh: THREE.Mesh; material: THREE.MeshPhysicalMaterial } | null = null;
+
 /** render a material library thumbnail: a sphere under the shared thumbnail
-    renderer, synchronous, returns a PNG data URL. The preview material is
-    fresh per call and disposed after render — only buildPreviewMaterial's
-    textures are cache-owned and must survive it. */
+    renderer, synchronous, returns a PNG data URL */
 export function renderMaterialThumb(mat: LibMaterial, size = 56): string {
   const t = thumbCtx(size);
   ensureThumbEnv(t);
 
-  const material = buildPreviewMaterial(sphereUv(mat));
-  const geo = new THREE.SphereGeometry(0.85, 48, 32);
-  const mesh = new THREE.Mesh(geo, material);
-  t.content.add(mesh);
+  if (!matThumb) {
+    const material = new THREE.MeshPhysicalMaterial();
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.85, 48, 32), material);
+    mesh.visible = false;
+    t.scene.add(mesh);
+    matThumb = { mesh, material };
+  }
+  applyLibMaterial(matThumb.material, sphereUv(mat));
 
+  /* shape/wing thumbnails leave their meshes parented under content between
+     calls — hide the group so they can't photobomb the material sphere */
+  t.content.visible = false;
+  matThumb.mesh.visible = true;
   t.renderer.render(t.scene, t.camera);
   const url = t.renderer.domElement.toDataURL();
-
-  t.content.remove(mesh);
-  geo.dispose();
-  material.dispose();
+  matThumb.mesh.visible = false;
+  t.content.visible = true;
   return url;
 }
 
 /** modal-sized orbitable material preview — its own renderer/scene/camera
     (a picker-sized canvas is worth a dedicated WebGL context, unlike the
     swarm of list thumbnails above). Render-on-demand only: the caller drives
-    every frame via update()/setShape() or its own pointer-drag handling. */
+    every frame via update()/setShape() or its own pointer-drag handling.
+
+    SINGLETON via acquireMaterialPreview(): three r185's renderer.dispose()
+    does not release the GL context, and the shared cache-owned textures keep
+    dispose listeners that pin a "disposed" renderer forever — so an instance
+    per modal open permanently leaks a WebGL context each time, and Chrome
+    evicts the oldest context (the main viewport) once it hits its cap. The
+    one instance owns its canvas; callers re-parent it and never dispose. */
 export class MaterialPreview {
+  readonly canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
@@ -312,7 +331,9 @@ export class MaterialPreview {
   private lastX = 0;
   private lastY = 0;
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor() {
+    const canvas = document.createElement('canvas');
+    this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
@@ -364,19 +385,6 @@ export class MaterialPreview {
     this.render();
   }
 
-  /** full cleanup — the material and its geometry are this instance's own;
-      the maps on the material are cache-owned and are left untouched. */
-  dispose(): void {
-    this.canvas.removeEventListener('pointerdown', this.onPointerDown);
-    this.canvas.removeEventListener('pointermove', this.onPointerMove);
-    this.canvas.removeEventListener('pointerup', this.onPointerUp);
-    this.canvas.removeEventListener('pointerleave', this.onPointerUp);
-    this.mesh.geometry.dispose();
-    this.material.dispose();
-    this.scene.environment?.dispose();
-    this.renderer.dispose();
-  }
-
   private onPointerDown = (e: PointerEvent): void => {
     this.dragging = true;
     this.lastX = e.clientX;
@@ -416,4 +424,14 @@ export class MaterialPreview {
     this.camera.updateProjectionMatrix();
     this.renderer.render(this.scene, this.camera);
   }
+}
+
+let materialPreview: MaterialPreview | null = null;
+
+/** the one MaterialPreview for the session (see the class doc for why per-
+    open instances are a context leak). The caller re-parents .canvas into its
+    own DOM; closing the modal just detaches it — never dispose. */
+export function acquireMaterialPreview(): MaterialPreview {
+  materialPreview ??= new MaterialPreview();
+  return materialPreview;
 }

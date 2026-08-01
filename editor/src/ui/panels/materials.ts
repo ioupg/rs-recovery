@@ -68,19 +68,48 @@ function buildAssignmentSection(host: HTMLElement, ctx: UiContext): void {
     cells.push({ name, cell, img });
   }
 
-  const refresh = (): void => {
+  /* Each thumb is a synchronous GPU render + readback, and this grid hears
+     EVERY library tick and texture load — so re-render only the cells whose
+     resolved material actually changed (dirty key), only the cells a freshly
+     decoded map feeds (url filter), and at most one batch per frame. The
+     naive version re-rendered every cell once per texture load at startup. */
+  const renderedKey = new Map<string, string>();
+  const dirty = new Set<string>();
+  let raf = 0;
+  const renderCell = (c: { name: string; cell: HTMLButtonElement; img: HTMLImageElement }): void => {
+    const mat = resolveAssigned(ctx, c.name);
+    if (!mat) return;
+    c.img.src = renderMaterialThumb(mat, 112);
+    c.cell.title = `${shortName(c.name)} → ${mat.name}\nclick to change · hover shows where it sits`;
+    renderedKey.set(c.name, JSON.stringify(mat));
+  };
+  const schedule = (name: string): void => {
+    dirty.add(name);
+    raf ||= requestAnimationFrame(() => {
+      raf = 0;
+      for (const c of cells) if (dirty.has(c.name)) renderCell(c);
+      dirty.clear();
+    });
+  };
+  /* library/assignment tick: only cells whose resolved def changed */
+  const refreshChanged = (): void => {
     for (const c of cells) {
       const mat = resolveAssigned(ctx, c.name);
-      if (!mat) continue;
-      c.img.src = renderMaterialThumb(mat, 112);
-      c.cell.title = `${shortName(c.name)} → ${mat.name}\nclick to change · hover shows where it sits`;
+      if (mat && renderedKey.get(c.name) !== JSON.stringify(mat)) schedule(c.name);
     }
   };
-  refresh();
+  /* a map decoded: same def, new pixels — just the cells wearing that map */
+  const onTextureLoad = (url: string): void => {
+    for (const c of cells) {
+      const mat = resolveAssigned(ctx, c.name);
+      if (mat && Object.values(mat.maps).includes(url)) schedule(c.name);
+    }
+  };
+  for (const c of cells) renderCell(c);
 
-  ctx.assignments.subscribe(refresh);
-  ctx.library.subscribe(refresh);
-  subscribeTextureLoads(refresh);
+  ctx.assignments.subscribe(refreshChanged);
+  ctx.library.subscribe(refreshChanged);
+  subscribeTextureLoads(onTextureLoad);
 }
 
 /** the box/facet/plate/systems-view slot palette — unchanged behavior,

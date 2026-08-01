@@ -11,7 +11,7 @@ import type { MaterialSlot, Unsubscribe } from '../core/types';
 import type { AssignmentStore, MaterialStore } from '../core/materials';
 import type { MaterialLibrary } from '../core/library';
 import { getAtlasTexture } from './atlas';
-import { applyLibMaterial } from './libMaterial';
+import { applyLibMaterial, clearcoatFlips } from './libMaterial';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -100,16 +100,23 @@ export class MaterialCache {
     m.envMapIntensity = 1;
     m.emissive.set(def.emissive);
     m.emissiveIntensity = def.emissiveIntensity;
+    if (clearcoatFlips(m.clearcoat, def.clearcoat)) m.needsUpdate = true;
     m.clearcoat = def.clearcoat;
     m.clearcoatRoughness = def.clearcoatRoughness;
   }
 
+  /* apply() and applyLibMaterial flag needsUpdate themselves on the
+     transitions that actually recompile (map/clearcoat flips) — everything
+     else is uniform-only, so no blanket needsUpdate here: that would
+     recompile-check every cached material on every store/library tick. */
   private refreshAll(): void {
     for (const e of this.cache.values()) {
       this.apply(e.m, e.slot, e.v);
       // atlas may have finished building after this entry was first created
-      if (!e.v.map && e.v.textured && !e.m.map) e.m.map = getAtlasTexture();
-      e.m.needsUpdate = true;
+      if (!e.v.map && e.v.textured && !e.m.map) {
+        e.m.map = getAtlasTexture();
+        e.m.needsUpdate = true;   // null → map is a program change
+      }
     }
   }
 }

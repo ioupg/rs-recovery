@@ -13,6 +13,7 @@ export function buildLoadModal(root: HTMLElement, ctx: UiContext): { open(): voi
   const modal = h('div', 'modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-label', 'Load template design');
+  modal.tabIndex = -1;   // else focus() is a no-op and the opener keeps focus
 
   const head = h('div', 'modal-head');
   head.append(h('h2', undefined, 'Load template design'));
@@ -93,7 +94,10 @@ export function buildLoadModal(root: HTMLElement, ctx: UiContext): { open(): voi
   closeBtn.onclick = close;
   backdrop.onclick = e => { if (e.target === backdrop) close(); };
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && backdrop.style.display !== 'none') { e.stopPropagation(); close(); }
+    if (backdrop.style.display === 'none') return;
+    if (e.key === 'Escape') close();
+    /* top layer: keydown must not reach the editor hotkeys behind the modal */
+    e.stopPropagation();
   }, true);
 
   return { open };

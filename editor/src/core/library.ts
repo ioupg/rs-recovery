@@ -67,6 +67,13 @@ export function buildLibraryDefaults(
 
 const clone = (m: LibMaterial): LibMaterial => ({ ...m, maps: { ...m.maps } });
 
+/** field-wise inequality, maps compared by content (same idiom as diff()) */
+const differs = (a: LibMaterial, b: LibMaterial): boolean => {
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof LibMaterial>)
+    if (k !== 'maps' && a[k] !== b[k]) return true;
+  return JSON.stringify(a.maps) !== JSON.stringify(b.maps);
+};
+
 export type LibraryOverlay = Record<string, Partial<LibMaterial>>;
 
 /** Mutable registry with change events. Tweaks are app-level (they edit the
@@ -75,13 +82,20 @@ export type LibraryOverlay = Record<string, Partial<LibMaterial>>;
 export class MaterialLibrary {
   private readonly defaults = new Map<string, LibMaterial>();
   private readonly set = new Map<string, LibMaterial>();
+  /** the PURE generated legacy wraps, before materials.json re-tuned any of
+      them — the baseline exportJson keeps legacy entries against. Diffing
+      against `defaults` instead would drop a committed tuning on the next
+      export cycle: once it ships in materials.json it becomes the default,
+      stops diffing, and gets filtered as "untouched". */
+  private readonly legacyBaselines = new Map<string, LibMaterial>();
   private listeners = new Set<(kind: ChangeKind) => void>();
 
-  constructor(defaults: readonly LibMaterial[]) {
+  constructor(defaults: readonly LibMaterial[], legacyBaselines: readonly LibMaterial[] = []) {
     for (const m of defaults) {
       this.defaults.set(m.id, clone(m));
       this.set.set(m.id, clone(m));
     }
+    for (const m of legacyBaselines) this.legacyBaselines.set(m.id, clone(m));
   }
 
   /** registry order: legacy wraps first (seed order), curated entries after */
@@ -131,13 +145,17 @@ export class MaterialLibrary {
     this.emit();
   }
 
-  /** the current library as a committable materials.json. Untouched legacy
-      wraps are omitted (they regenerate); tweaked ones are included so the
-      tuning can ship. */
+  /** the current library as a committable materials.json. Legacy wraps that
+      match their pure generated form are omitted (they regenerate); anything
+      tuned away from it — whether tweaked this session or committed in a
+      previous materials.json — is included so the tuning keeps shipping. */
   exportJson(): string {
-    const diff = this.diff() ?? {};
     const mats = this.all()
-      .filter(m => !m.legacy || diff[m.id])
+      .filter(m => {
+        if (!m.legacy) return true;
+        const base = this.legacyBaselines.get(m.id) ?? this.defaults.get(m.id);
+        return !base || differs(m, base);
+      })
       .map(m => ({ ...m, maps: { ...m.maps } }));
     return JSON.stringify({ materials: mats }, null, 2);
   }

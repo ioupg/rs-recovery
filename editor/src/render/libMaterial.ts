@@ -1,9 +1,9 @@
 /* Turns a core LibMaterial def into a live THREE.MeshPhysicalMaterial: maps
    resolved through textureCache (with the material's own uv transform) plus
    scalars, three.js semantics throughout (a scalar multiplies its map when
-   one is present). Shared by materialCache.ts (mesh-mode materials, cached
-   and patched in place) and the material library preview widgets in
-   shapePreview.ts (fresh, caller-disposed instances). */
+   one is present). Shared by materialCache.ts (mesh-mode materials) and the
+   material library preview widgets in shapePreview.ts — all of them one
+   persistent instance patched in place via applyLibMaterial. */
 
 import * as THREE from 'three';
 import type { LibMaterial } from '../core/types';
@@ -33,11 +33,16 @@ function resolveMaps(mat: LibMaterial): ResolvedMaps {
 }
 
 /** true when a map slot flips between present and absent — three recompiles
-    the shader program on that transition, so it's the only case needing
-    needsUpdate; swapping to a different texture in an already-mapped slot
-    does not. */
+    the shader program on that transition, so it needs needsUpdate; swapping
+    to a different texture in an already-mapped slot does not. */
 const flips = (had: THREE.Texture | null, next: THREE.Texture | null): boolean =>
   (had === null) !== (next === null);
+
+/** clearcoat is the one scalar we drive that is also compile-time in three
+    (USE_CLEARCOAT gates on clearcoat > 0), so crossing zero needs the same
+    needsUpdate treatment as a map flip */
+export const clearcoatFlips = (had: number, next: number): boolean =>
+  (had > 0) !== (next > 0);
 
 /** Patch `m` in place from `mat`. Cached materials must never be recreated —
     mesh material arrays hold references to them. */
@@ -64,15 +69,7 @@ export function applyLibMaterial(m: THREE.MeshPhysicalMaterial, mat: LibMaterial
   m.envMapIntensity = mat.envIntensity;
   m.emissive.set(mat.emissive);
   m.emissiveIntensity = mat.emissiveIntensity;
+  if (clearcoatFlips(m.clearcoat, mat.clearcoat)) m.needsUpdate = true;
   m.clearcoat = mat.clearcoat;
   m.clearcoatRoughness = mat.clearcoatRoughness;
-}
-
-/** fresh material for previews (no vertex colours — previews are plain
-    shapes, not ship geometry); caller owns disposal. Textures come from the
-    shared cache and must never be disposed by the caller. */
-export function buildPreviewMaterial(mat: LibMaterial): THREE.MeshPhysicalMaterial {
-  const m = new THREE.MeshPhysicalMaterial();
-  applyLibMaterial(m, mat);
-  return m;
 }

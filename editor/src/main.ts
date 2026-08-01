@@ -49,10 +49,24 @@ async function init(): Promise<void> {
   const model = new ShipModel(emptyDoc());
   const history = new History(model);
   const materials = new MaterialStore(buildDefaultMaterials(data.systems.all()));
-  const library = new MaterialLibrary(buildLibraryDefaults(
-    legacyMaterials(collectTextureNames(data), getManifest()), shipped));
+  const legacy = legacyMaterials(collectTextureNames(data), getManifest());
+  const library = new MaterialLibrary(buildLibraryDefaults(legacy, shipped), legacy);
   library.applyOverlay(loadLibraryOverlay());
-  library.subscribe(() => saveLibraryOverlay(library.diff()));
+  /* persist tweaks debounced — a slider drag emits per frame, and diff() +
+     localStorage serialization per frame is real jank on a large library */
+  let overlaySavePending = false;
+  let overlaySaveTimer: number | undefined;
+  const flushOverlaySave = (): void => {
+    if (!overlaySavePending) return;
+    overlaySavePending = false;
+    saveLibraryOverlay(library.diff());
+  };
+  library.subscribe(() => {
+    overlaySavePending = true;
+    clearTimeout(overlaySaveTimer);
+    overlaySaveTimer = window.setTimeout(flushOverlaySave, 300);
+  });
+  window.addEventListener('pagehide', flushOverlaySave);
   const assignments = new AssignmentStore();
 
   /* forward references filled after the scene exists */

@@ -256,5 +256,38 @@ describe('MaterialLibrary', () => {
       expect(materials.map(m => m.id).sort()).toEqual(['curated-1', 'legacy-1']);
       expect(materials.find(m => m.id === 'legacy-1')!.color).toBe('#ff00ff');
     });
+
+    /* the documented workflow: tweak → export → commit as materials.json →
+       next session ships it. The tuning must survive the SECOND export, when
+       it has become part of the defaults and no longer diffs against them. */
+    it('keeps a committed legacy tuning across a second export cycle', () => {
+      const legacy = legacyMaterials(['a.bmp']);
+      const lib1 = new MaterialLibrary(buildLibraryDefaults(legacy, []), legacy);
+      lib1.patch('a.bmp', { color: '#ff0000' });
+      const shipped = (JSON.parse(lib1.exportJson()) as { materials: LibMaterialSpec[] }).materials;
+      expect(shipped.find(m => m.id === 'a.bmp')?.color).toBe('#ff0000');
+
+      const lib2 = new MaterialLibrary(buildLibraryDefaults(legacy, shipped), legacy);
+      const again = (JSON.parse(lib2.exportJson()) as { materials: LibMaterial[] }).materials;
+      expect(again.find(m => m.id === 'a.bmp')?.color).toBe('#ff0000');
+    });
+
+    it('export is a fixed point: re-shipping an export and exporting again is identical', () => {
+      const legacy = legacyMaterials(['a.bmp', 'b.bmp']);
+      const lib1 = new MaterialLibrary(buildLibraryDefaults(legacy, []), legacy);
+      lib1.patch('a.bmp', { roughness: 0.33, maps: { normal: 'textures/a.bmp_n.png' } });
+      const first = lib1.exportJson();
+
+      const shipped = (JSON.parse(first) as { materials: LibMaterialSpec[] }).materials;
+      const lib2 = new MaterialLibrary(buildLibraryDefaults(legacy, shipped), legacy);
+      expect(lib2.exportJson()).toBe(first);
+    });
+
+    it('a pristine legacy wrap stays omitted even when baselines are supplied', () => {
+      const legacy = legacyMaterials(['a.bmp']);
+      const lib = new MaterialLibrary(buildLibraryDefaults(legacy, []), legacy);
+      const { materials } = JSON.parse(lib.exportJson()) as { materials: LibMaterial[] };
+      expect(materials).toEqual([]);
+    });
   });
 });

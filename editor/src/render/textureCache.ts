@@ -50,11 +50,12 @@ const loadedBase = new Set<string>();
 const pendingClones = new Map<string, Set<THREE.Texture>>();
 let loader: THREE.TextureLoader | null = null;
 
-const loadListeners = new Set<() => void>();
+const loadListeners = new Set<(url: string) => void>();
 
-/** fires once per base texture that finishes loading — the UI re-renders
-    material thumbnails/previews off this since maps arrive asynchronously */
-export function subscribeTextureLoads(fn: () => void): () => void {
+/** fires once per base texture that finishes loading, with the map URL that
+    landed — the UI refreshes only the material thumbnails/previews whose maps
+    reference it, since maps arrive asynchronously */
+export function subscribeTextureLoads(fn: (url: string) => void): () => void {
   loadListeners.add(fn);
   return () => loadListeners.delete(fn);
 }
@@ -73,7 +74,7 @@ function getBase(url: string, colorSpace: THREE.ColorSpace): THREE.Texture {
         for (const c of clones) c.needsUpdate = true;
         pendingClones.delete(key);
       }
-      for (const fn of loadListeners) fn();
+      for (const fn of loadListeners) fn(url);
     });
     t.flipY = false;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -97,7 +98,8 @@ const clones = new Map<string, THREE.Texture>();
     pixels yet and will never upload on its own — three tracks upload need
     per Texture instance, not per shared Source. getBase()'s onLoad callback
     is what flips needsUpdate on every clone registered against it; clones
-    made after the base has already loaded set it immediately, right here. */
+    made after the base has already loaded get a bind-ready version right
+    here (direct assignment — see the shared-Source note below). */
 export function getMapTexture(
   url: string, colorSpace: THREE.ColorSpace, uv?: { scale: number; rotationDeg: number },
 ): THREE.Texture {
@@ -110,13 +112,23 @@ export function getMapTexture(
   const cKey = `${bKey}|${scale}|${rotationDeg}`;
   let c = clones.get(cKey);
   if (!c) {
+    /* Texture.copy() (inside clone) sets needsUpdate on the fresh clone, which
+       also bumps the SHARED Source version — that would force every texture on
+       this image to fully re-upload (mipmap rebuild included) on next use.
+       Snapshot/restore around the clone; the clone's own upload is driven by
+       the version bookkeeping below. */
+    const sourceVersion = b.source.version;
     c = b.clone();
+    b.source.version = sourceVersion;
     c.repeat.set(scale, scale);
     c.center.set(0.5, 0.5);
     c.rotation = rotationDeg * Math.PI / 180;
     clones.set(cKey, c);
     if (loadedBase.has(bKey)) {
-      c.needsUpdate = true;
+      /* bind-ready. Direct version assignment, NOT the needsUpdate setter:
+         the setter also bumps the shared Source version, which would force
+         the very re-upload the snapshot above just prevented. */
+      c.version = 1;
     } else {
       /* Texture.copy() bumps the clone's version, and a versioned texture
          with no pixels makes the renderer warn every frame until the image
