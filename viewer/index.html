@@ -184,6 +184,21 @@ const SHAPE_CENTROID = Object.fromEntries(Object.keys(FACES).map(s => {
   const m = ids.reduce((a,i)=>{const c=corner(i); return [a[0]+c[0],a[1]+c[1],a[2]+c[2]];},[0,0,0]);
   return [s, m.map(x=>x/ids.length)];
 }));
+/* face kind per local axis direction (slot-axis order, +x −x +y −y +z −z),
+   derived from FACES: the plate mesh a mounted plate needs there — full quad,
+   corner triangle, or no face at all (matches the editor's AXIS_FACE_KIND) */
+const SLOT_AXES = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+const AXIS_FACE_KIND = Object.fromEntries(Object.keys(FACES).map(s => {
+  const kinds = [null,null,null,null,null,null];
+  for (const loop of FACES[s]) {
+    const pts = loop.map(corner);
+    for (let a = 0; a < 3; a++) {
+      if (pts.every(p=>p[a]===1)) kinds[a*2]   = loop.length===4 ? 'quad' : 'tri';
+      if (pts.every(p=>p[a]===0)) kinds[a*2+1] = loop.length===4 ? 'quad' : 'tri';
+    }
+  }
+  return [s, kinds];
+}));
 
 /* ── chamfer: inset every exterior facet, then close the gaps with bevel strips
       along shared edges and fan patches at corners. Interior edges never appear
@@ -754,84 +769,64 @@ function buildShip(name, keepView) {
       }
     }
 
-    /* decoration plates ride over the frame's exterior faces. Each plate mesh is
-       authored on a unit face with its mounting back at z=0 and the relief
-       extending to -z (the same D3D-handed convention as the winding), so it is
-       mounted MIRRORED along the facet normal — back on the face plane, relief
-       standing out of the hull. Mapped as-is the relief would sink into the
-       window and only the flat back would show. The mirror flips handedness, so
-       position z and normal z are negated and each triangle is rewound. Plates
-       map through the affine frame the facet itself defines — which also means
-       they inherit the facet culling for free. */
+    /* decoration plates, mounted the engine's way (parity with the editor):
+       the slot INDEX is mere storage — the face a slot's plate decorates is
+       R(slot.o)·(0,0,−1), and the mesh, authored on the cell's z=0 face with
+       relief to −z, is instanced by rotating about the cell centre. No
+       mirroring, no rewinding: rotations preserve handedness and the decoder
+       already flipped to CCW. The named slanted types (p2121/p222A/p222V) are
+       cell-authored on their planes and ride slot 6 as R(cube.o)·R(slot6.o). */
     if (typeof PLATE_MESH !== 'undefined') {
-      const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
-      const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
-      const norm=a=>{const l=Math.hypot(...a)||1; return [a[0]/l,a[1]/l,a[2]/l];};
-      for (const f of kept) {
-        const pm = f.verts.length === 4
-          ? (PLATE_MESH.quad_all ? PLATE_MESH.quad_all[plateVariant % PLATE_MESH.quad_all.length]
-                                 : PLATE_MESH.quad)
-          : PLATE_MESH.tri;
-        if (!pm) continue;
-        const nw = norm(cross(norm(sub(f.verts[1],f.verts[0])), sub(f.verts[2],f.verts[0])));
-        const cen = f.verts.reduce((s,v)=>[s[0]+v[0],s[1]+v[1],s[2]+v[2]],[0,0,0])
-                           .map(x=>x/f.verts.length);
-        const n = orient(nw, cen, f, occ2);
-        /* per-face plate presence, recovered from the ship files (2026-07-31):
-           an axis plate's face is R(slot.o)·(0,0,−1) — third matrix column
-           negated; the non-axis face (cut/slope/diagonal) is slot 6. Faces
-           whose slot says no plate stay bare, as authored in 2014. */
-        {
-          const sl = f.cube && f.cube.slots;
-          if (sl) {
-            const axis = Math.abs(Math.abs(n[0])+Math.abs(n[1])+Math.abs(n[2]) - 1) < 1e-6;
-            let present = false;
-            if (axis) {
-              for (let si = 0; si < 6 && si < sl.length; si++) {
-                const m = ORIENTATIONS[sl[si].o];
-                if (Math.round(-m[2]) === Math.round(n[0]) &&
-                    Math.round(-m[5]) === Math.round(n[1]) &&
-                    Math.round(-m[8]) === Math.round(n[2])) { present = !!sl[si].p; break; }
-              }
-            } else present = sl[6] ? !!sl[6].p : false;
-            if (!present) continue;
-          }
-        }
-        /* the loop may wind either way; the mirror mounting needs a right-handed
-           frame, or it mirrors the plate a second time in-plane and the winding
-           comes out inverted on exactly those facets. Walk the loop backwards
-           when its winding normal opposes the outward one. */
-        const fv = (nw[0]*n[0]+nw[1]*n[1]+nw[2]*n[2] < 0)
-                 ? f.verts.slice().reverse() : f.verts;
-        const v0 = fv[0], E1 = sub(fv[1], v0), E2 = sub(fv[2], v0);
-        /* solve the plate's local outline onto this facet — full size: the
-           plate covers the whole face, rim included, the engine's way */
-        const [a0,a1,a2] = pm.outline;
-        const d1=[a1[0]-a0[0], a1[1]-a0[1]], d2=[a2[0]-a0[0], a2[1]-a0[1]];
-        const det = d1[0]*d2[1] - d1[1]*d2[0];
-        if (!det) continue;
-        const c = compColorOn ? new THREE.Color(COMP[f.comp].c)
+      const byCell = new Map(ship.cubes.map(cb => [`${cb.x},${cb.y},${cb.z}`, cb]));
+      const NON_AXIS_TYPE = {2:'p2121', 3:'p222A', 1:'p222V'};
+      const emitPart = (cb, M, pm) => {
+        const c = compColorOn ? new THREE.Color(COMP[cb.comp].c)
                               : new THREE.Color(COMP[HULL_ID].c);
-        for (const s of pm.sub)
-        for (let t=0; t<s.idx.length; t+=3)
-        for (const i of [s.idx[t], s.idx[t+2], s.idx[t+1]]) {
-          const lx = s.pos[i*3]   - a0[0],
-                ly = s.pos[i*3+1] - a0[1],
-                lz = -s.pos[i*3+2];
-          const t1 = ( lx*d2[1] - ly*d2[0]) / det;
-          const t2 = (-lx*d1[1] + ly*d1[0]) / det;
-          const w = [v0[0]+t1*E1[0]+t2*E2[0]+lz*n[0],
-                     v0[1]+t1*E1[1]+t2*E2[1]+lz*n[1],
-                     v0[2]+t1*E1[2]+t2*E2[2]+lz*n[2]];
-          const m1 = ( s.nrm[i*3]*d2[1] - s.nrm[i*3+1]*d2[0]) / det;
-          const m2 = (-s.nrm[i*3]*d1[1] + s.nrm[i*3+1]*d1[0]) / det;
-          const nz = -s.nrm[i*3+2];
-          const wn = norm([m1*E1[0]+m2*E2[0]+nz*n[0],
-                           m1*E1[1]+m2*E2[1]+nz*n[1],
-                           m1*E1[2]+m2*E2[2]+nz*n[2]]);
-          pos.push(...w); nrm.push(...wn);
-          const a = aoOn ? vertexAO(w, wn, occ2, null) : 1;
+        for (const s of pm.sub) for (const i of s.idx) {
+          const px = s.pos[i*3]-.5, py = s.pos[i*3+1]-.5, pz = s.pos[i*3+2]-.5;
+          const w = [M[0]*px+M[1]*py+M[2]*pz+.5+cb.x,
+                     M[3]*px+M[4]*py+M[5]*pz+.5+cb.y,
+                     M[6]*px+M[7]*py+M[8]*pz+.5+cb.z];
+          const n = [M[0]*s.nrm[i*3]+M[1]*s.nrm[i*3+1]+M[2]*s.nrm[i*3+2],
+                     M[3]*s.nrm[i*3]+M[4]*s.nrm[i*3+1]+M[5]*s.nrm[i*3+2],
+                     M[6]*s.nrm[i*3]+M[7]*s.nrm[i*3+1]+M[8]*s.nrm[i*3+2]];
+          pos.push(...w); nrm.push(...n);
+          const a = aoOn ? vertexAO(w, n, occ2, null) : 1;
           col.push(c.r*a*1.06, c.g*a*1.06, c.b*a*1.06);
+        }
+      };
+      for (const cb of ship.cubes) {
+        const sl = cb.slots;
+        if (!sl) continue;
+        const Mc = ORIENTATIONS[cb.o];
+        for (let si = 0; si < 6 && si < sl.length; si++) {
+          if (!sl[si].p) continue;
+          const Ms = ORIENTATIONS[sl[si].o];
+          const d = [-Ms[2], -Ms[5], -Ms[8]];             // R(o)·(0,0,−1)
+          /* local direction Rᵀ·d picks the shape's face kind on that axis */
+          const ld = [Mc[0]*d[0]+Mc[3]*d[1]+Mc[6]*d[2],
+                      Mc[1]*d[0]+Mc[4]*d[1]+Mc[7]*d[2],
+                      Mc[2]*d[0]+Mc[5]*d[1]+Mc[8]*d[2]];
+          const axis = SLOT_AXES.findIndex(a =>
+            a[0]===Math.round(ld[0]) && a[1]===Math.round(ld[1]) && a[2]===Math.round(ld[2]));
+          if (axis < 0) continue;
+          const kind = AXIS_FACE_KIND[cb.shape][axis];
+          if (!kind) continue;
+          const nb = byCell.get(`${cb.x+d[0]},${cb.y+d[1]},${cb.z+d[2]}`);
+          if (nb && nb.shape === 0) continue;             // buried under a full cube
+          const pm = kind === 'quad'
+            ? (PLATE_MESH.quad_all ? PLATE_MESH.quad_all[plateVariant % PLATE_MESH.quad_all.length]
+                                   : PLATE_MESH.quad)
+            : ((PLATE_MESH.tri_all && PLATE_MESH.tri_all[0]) || PLATE_MESH.tri);
+          if (pm) emitPart(cb, Ms, pm);
+        }
+        const t6 = NON_AXIS_TYPE[cb.shape];
+        if (t6 && sl[6] && sl[6].p && PLATE_MESH.types && PLATE_MESH.types[t6]) {
+          const Ms = ORIENTATIONS[sl[6].o];
+          const M = new Array(9);                         // Mc·Ms about the cell centre
+          for (let i=0;i<3;i++) for (let j=0;j<3;j++)
+            M[i*3+j] = Mc[i*3]*Ms[j] + Mc[i*3+1]*Ms[3+j] + Mc[i*3+2]*Ms[6+j];
+          emitPart(cb, M, PLATE_MESH.types[t6]);
         }
       }
     }
