@@ -891,12 +891,16 @@ function buildShip(name, keepView) {
             : ((PLATE_MESH.tri_all && PLATE_MESH.tri_all[0]) || PLATE_MESH.tri);
           if (pm) emitPart(cb, Mm, pm);
         }
-        /* slot6.o is NOT a mounting rotation: its nonzero fleet values are
-           never cut-plane spins and composing them threw plates off their
-           faces (the Punisher "fin"). The cell-authored slant plate rides
-           the cube rotation alone — 25/25 fleet k7 plates base-on-plane. */
+        /* The non-axis face is ALWAYS dressed — its slant plate is the
+           shape's structural skin, not optional decoration: every fleet k6
+           slope (357) and k4 diagonal (215) reads plated, and the only five
+           k7 zeros are mirrored partners of plated cuts in symmetric ships
+           (noise in the dump's garbage-laden tail; the presence byte there
+           is unreliable, like slot6.o which is NOT a mounting rotation —
+           composing it threw plates off their faces, the Punisher "fin").
+           The cell-authored slant plate rides the cube rotation alone. */
         const t6 = NON_AXIS_TYPE[cb.shape];
-        if (t6 && sl[6] && sl[6].p && PLATE_MESH.types && PLATE_MESH.types[t6])
+        if (t6 && PLATE_MESH.types && PLATE_MESH.types[t6])
           emitPart(cb, Mc, PLATE_MESH.types[t6]);
       }
     }

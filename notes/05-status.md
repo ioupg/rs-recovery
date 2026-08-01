@@ -265,6 +265,12 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
   phantom fin — that ship has no wing elements at all; see
   `punisher-hole.jpg`). Non-axis plates mount by R(cube.o) alone — 25/25
   base-on-plane. Supersedes the earlier "spin about the cut diagonal" claim.
+  The slot-6 PRESENCE byte @144 is unreliable too: it sits in the record's
+  garbage tail, and its only five zeros in the fleet are k7s whose mirrored
+  partner is plated in an otherwise symmetric ship (Light Trader, Punisher,
+  Scyche, Zealot; Legion's lone k7 the fifth) — while all 572 k6/k4 read
+  plated. The non-axis face is ALWAYS dressed: the slant plate is the
+  shape's structural skin, and both renderers mount it unconditionally.
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.

@@ -390,11 +390,13 @@ function addAxisPlates(
 /* ── non-axis faces (k7 cut / k6 slope / k4 diagonal, slot 6): the named
       '=default' plates (p2121/p222A/p222V, identified via the cracked resource
       CRC) are authored IN the unit cell on their slanted planes, so they mount
-      like shells: rotated by R(cube.o) ALONE about the cell centre. slot6.o is
-      NOT a mounting rotation — measured across all 30 fleet k7s, its nonzero
-      values (17/15/21/5/8, deterministic per cube.o) are never cut-plane
-      spins, and composing them threw 8 of 25 plates off their faces (the
-      Punisher "fin"). R(cube.o) alone lands 25/25 base-on-plane. ── */
+      like shells: rotated by R(cube.o) ALONE about the cell centre. Slot 6's
+      stored bytes are untrustworthy on both counts: its orientation is NOT a
+      mounting rotation (never a cut-plane spin; composing it threw 8/25 fleet
+      cut plates off-face — the Punisher "fin"), and its presence byte sits in
+      the dump's garbage tail (5 false zeros break mirror symmetry in 4
+      ships; every one of the 572 fleet k6/k4 reads plated). The slant plate
+      is the shape's structural skin — always mounted. ── */
 const NON_AXIS_TYPE: Record<number, 'p2121' | 'p222A' | 'p222V'> = {
   2: 'p2121', 3: 'p222A', 1: 'p222V',
 };
@@ -408,7 +410,7 @@ function addNonAxisPlates(
   const NON_AXIS_FACE: Record<number, 'slope' | 'diag' | 'cut'> = { 2: 'slope', 3: 'diag', 1: 'cut' };
   for (const cb of doc.cubes) {
     const typeName = NON_AXIS_TYPE[cb.shape];
-    if (!typeName || !cb.slots?.[6]?.p) continue;
+    if (!typeName) continue;
     const overrideId = cb.plateKinds?.[6];
     const override = overrideId ? data.plates.get(overrideId) : undefined;
     const pm = override && override.faceType === NON_AXIS_FACE[cb.shape]
