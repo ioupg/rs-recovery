@@ -185,21 +185,23 @@ const SHAPE_CENTROID = Object.fromEntries(Object.keys(FACES).map(s => {
   const m = ids.reduce((a,i)=>{const c=corner(i); return [a[0]+c[0],a[1]+c[1],a[2]+c[2]];},[0,0,0]);
   return [s, m.map(x=>x/ids.length)];
 }));
-/* face kind per local axis direction (slot-axis order, +x −x +y −y +z −z),
-   derived from FACES: the plate mesh a mounted plate needs there — full quad,
-   corner triangle, or no face at all (matches the editor's AXIS_FACE_KIND) */
+/* face kind + corner loop per local axis direction (slot-axis order,
+   +x −x +y −y +z −z), derived from FACES: the plate mesh a mounted plate
+   needs there — full quad, corner triangle, or no face at all (matches the
+   editor's AXIS_FACE_KIND) */
 const SLOT_AXES = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
-const AXIS_FACE_KIND = Object.fromEntries(Object.keys(FACES).map(s => {
-  const kinds = [null,null,null,null,null,null];
+const AXIS_FACE_KIND = {}, AXIS_FACE_LOOP = {};
+for (const s of Object.keys(FACES)) {
+  const kinds = [null,null,null,null,null,null], loops = [null,null,null,null,null,null];
   for (const loop of FACES[s]) {
     const pts = loop.map(corner);
     for (let a = 0; a < 3; a++) {
-      if (pts.every(p=>p[a]===1)) kinds[a*2]   = loop.length===4 ? 'quad' : 'tri';
-      if (pts.every(p=>p[a]===0)) kinds[a*2+1] = loop.length===4 ? 'quad' : 'tri';
+      if (pts.every(p=>p[a]===1)) { kinds[a*2] = loop.length===4?'quad':'tri'; loops[a*2] = loop; }
+      if (pts.every(p=>p[a]===0)) { kinds[a*2+1] = loop.length===4?'quad':'tri'; loops[a*2+1] = loop; }
     }
   }
-  return [s, kinds];
-}));
+  AXIS_FACE_KIND[s] = kinds; AXIS_FACE_LOOP[s] = loops;
+}
 
 /* ── chamfer: inset every exterior facet, then close the gaps with bevel strips
       along shared edges and fan patches at corners. Interior edges never appear
@@ -865,20 +867,37 @@ function buildShip(name, keepView) {
           if (!kind) continue;
           const nb = byCell.get(`${cb.x+d[0]},${cb.y+d[1]},${cb.z+d[2]}`);
           if (nb && nb.shape === 0) continue;             // buried under a full cube
+          /* the spin about the face normal is a free decoration parameter in
+             the archive — on a tri face only one of the four spins covers the
+             material half, so snap to the one whose authored footprint lands
+             on the face's own corners (30 fleet plates store a wrong spin —
+             the Punisher/Legion phantom fins) */
+          let Mm = Ms;
+          if (kind === 'tri') {
+            const want = new Set(AXIS_FACE_LOOP[cb.shape][axis]
+              .map(ci => rot(cb.o, corner(ci)).join(',')));
+            for (let o2 = 0; o2 < 24; o2++) {
+              const m2 = ORIENTATIONS[o2];
+              if (Math.round(-m2[2])!==d[0] || Math.round(-m2[5])!==d[1] ||
+                  Math.round(-m2[8])!==d[2]) continue;
+              const hit = [[0,0,0],[1,0,0],[0,1,0]].every(p =>
+                want.has(rot(o2, p).join(',')));
+              if (hit) { Mm = ORIENTATIONS[o2]; break; }
+            }
+          }
           const pm = kind === 'quad'
             ? (PLATE_MESH.quad_all ? PLATE_MESH.quad_all[plateVariant % PLATE_MESH.quad_all.length]
                                    : PLATE_MESH.quad)
             : ((PLATE_MESH.tri_all && PLATE_MESH.tri_all[0]) || PLATE_MESH.tri);
-          if (pm) emitPart(cb, Ms, pm);
+          if (pm) emitPart(cb, Mm, pm);
         }
+        /* slot6.o is NOT a mounting rotation: its nonzero fleet values are
+           never cut-plane spins and composing them threw plates off their
+           faces (the Punisher "fin"). The cell-authored slant plate rides
+           the cube rotation alone — 25/25 fleet k7 plates base-on-plane. */
         const t6 = NON_AXIS_TYPE[cb.shape];
-        if (t6 && sl[6] && sl[6].p && PLATE_MESH.types && PLATE_MESH.types[t6]) {
-          const Ms = ORIENTATIONS[sl[6].o];
-          const M = new Array(9);                         // Mc·Ms about the cell centre
-          for (let i=0;i<3;i++) for (let j=0;j<3;j++)
-            M[i*3+j] = Mc[i*3]*Ms[j] + Mc[i*3+1]*Ms[3+j] + Mc[i*3+2]*Ms[6+j];
-          emitPart(cb, M, PLATE_MESH.types[t6]);
-        }
+        if (t6 && sl[6] && sl[6].p && PLATE_MESH.types && PLATE_MESH.types[t6])
+          emitPart(cb, Mc, PLATE_MESH.types[t6]);
       }
     }
 

@@ -252,6 +252,19 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
   regrade (`setBloomLook` — key up, fill down, so lit faces clip past the
   bloom threshold and leak) and a bow-first fly-through ship-change
   transition with a braking camera tween.
+- **Slot orientations are only half trustworthy (2026-08-01, Punisher-hole
+  fix):** an axis slot's orientation reliably encodes WHICH face the plate
+  decorates (R(o)·(0,0,−1)) but its spin about the face normal is free — on
+  tri faces only one of the four spins covers the material half and 30 fleet
+  plates store a wrong one, so both renderers snap tri plates to the face
+  (`plateCanonical` in the editor, inline search in the viewer). slot 6 is
+  worse: its orientation is NOT a mounting rotation at all — measured over all
+  30 fleet k7s, the nonzero values (deterministic per cube.o, e.g. o=8→17 in
+  five ships, and present even with p=0) are never cut-plane spins, and
+  composing them threw 8 of 25 cut plates off their faces (the Punisher
+  phantom fin — that ship has no wing elements at all; see
+  `punisher-hole.jpg`). Non-axis plates mount by R(cube.o) alone — 25/25
+  base-on-plane. Supersedes the earlier "spin about the cut diagonal" claim.
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.

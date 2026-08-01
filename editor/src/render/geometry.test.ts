@@ -5,6 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ShapeId, ShipDoc } from '../core/types';
+import { plateFaceDir } from '../core/tables';
 import { ARCHIVE_SLOTS } from '../core/materials';
 import { SystemsRegistry } from '../core/systems';
 import type { GameData, ShipEntry } from '../data/loader';
@@ -197,6 +198,29 @@ describe('flush mounting (the engine scheme — no insets, no margins)', () => {
       (s, c) => s + (c.comp === 8 ? 0
         : data.moduleMesh[c.comp]?.sub.reduce((a, m) => a + (m.nrm ? m.idx.length / 3 : 0), 0) ?? 0), 0);
     expect(built.geometry.getAttribute('position').count / 3).toBe(cageTris);
+  });
+});
+
+describe('tri-face plates snap to the material half', () => {
+  it('every spin of a tri-face slot mounts identically — the stored spin is decoration', () => {
+    /* k6 wedge at o=0: the +x face is the corner triangle (1,0,0)(1,0,1)(1,1,1).
+       The archive stores free spins about the face normal; 30 fleet plates
+       carry one that would land the plate on the EMPTY half (the Punisher/
+       Legion phantom fins). All four spins must therefore resolve to one
+       placement, with every base vertex on the material side (y <= z). */
+    const cube = { x: 0, y: 0, z: 0, o: 0, shape: 2 };
+    const spins = [...Array(24).keys()].filter(o => {
+      const d = plateFaceDir(o);
+      return d[0] === 1 && d[1] === 0 && d[2] === 0;
+    });
+    expect(spins.length).toBe(4);
+    const variants = { quad: 0, slope: 0, tri: 0, eq: 0 };
+    const all = spins.map(o => mountedPlatePositions(cube, o, data, variants)!);
+    for (const pos of all) {
+      expect(pos).toEqual(all[0]);
+      for (let i = 0; i < pos.length; i += 3)
+        expect(pos[i + 1]).toBeLessThanOrEqual(pos[i + 2] + 1e-6);   // y <= z half
+    }
   });
 });
 

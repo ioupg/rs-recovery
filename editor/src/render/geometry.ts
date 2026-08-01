@@ -14,7 +14,7 @@ import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
 import { WING_SLOT } from '../core/types';
 import {
   AXIS_FACE_KIND, HULL_COMP, ORIENTATIONS, SLOT_AXES, WING_RING,
-  corner, plateFaceDir, rot,
+  corner, plateCanonical, plateFaceDir, rot,
 } from '../core/tables';
 import { compSlot } from '../core/materials';
 import type { GameData, PlateMeshEntry } from '../data/loader';
@@ -271,14 +271,6 @@ function addModules(
 const pickVariant = <T>(pool: readonly T[], i: number): T | undefined =>
   pool.length ? pool[((i % pool.length) + pool.length) % pool.length] : undefined;
 
-const matMul9 = (a: readonly number[], b2: readonly number[]): number[] => {
-  const r = new Array<number>(9);
-  for (let i = 0; i < 3; i++)
-    for (let j = 0; j < 3; j++)
-      r[i * 3 + j] = a[i * 3] * b2[j] + a[i * 3 + 1] * b2[3 + j] + a[i * 3 + 2] * b2[6 + j];
-  return r;
-};
-
 /** Parts are authored in the unit cell and instanced by rotating about the
     cell centre (the engine's own mounting — no mirroring, no rewinding:
     rotations preserve handedness and the decoder already flipped to CCW).
@@ -314,16 +306,21 @@ function emitMountedPart(
   }
 }
 
-/** The plate mesh a slot orientation needs on this cube, or null when the
-    shape has no face there / the face is buried under a full-cube neighbour.
-    overrideId (the cube's per-face plateKinds entry) resolves through the
-    plate registry and wins when its faceType matches the face. */
+/** The plate mesh a slot orientation needs on this cube plus the orientation
+    to mount it with, or null when the shape has no face there / the face is
+    buried under a full-cube neighbour. The mount orientation is the stored
+    slot orientation for quad faces (its spin is a free decoration parameter)
+    but SNAPPED to the face for tri faces: the archive stores free spins there
+    too, and 30 fleet tri plates would land on the empty half of their face if
+    mounted verbatim (the Punisher/Legion phantom "fins"). overrideId (the
+    cube's per-face plateKinds entry) resolves through the plate registry and
+    wins when its faceType matches the face. */
 export function plateMeshFor(
   cube: { x: number; y: number; z: number; o: number; shape: number },
   slotO: number, data: GameData, variants: PlateVariants,
   cubeAtCell?: (x: number, y: number, z: number) => { shape: number } | undefined,
   overrideId?: string | null,
-): PlateMeshEntry | null {
+): { pm: PlateMeshEntry; mountO: number } | null {
   const d = plateFaceDir(slotO);
   const M = ORIENTATIONS[cube.o];
   if (!M) return null;
@@ -340,14 +337,17 @@ export function plateMeshFor(
   if (!kind) return null;
   const nb = cubeAtCell?.(cube.x + d[0], cube.y + d[1], cube.z + d[2]);
   if (nb && nb.shape === 0) return null;          // buried under a full cube
+  const mountO = kind === 'tri'
+    ? plateCanonical(cube.shape as ShapeId, cube.o, d)
+    : slotO;
   if (overrideId) {
     const def = data.plates.get(overrideId);
-    if (def && def.faceType === kind) return def.mesh as PlateMeshEntry;
+    if (def && def.faceType === kind) return { pm: def.mesh as PlateMeshEntry, mountO };
   }
   const quads = data.plateMesh.quad_all ?? [];
   const tris = data.plateMesh.tri_all ?? (data.plateMesh.tri ? [data.plateMesh.tri] : []);
   const pm = kind === 'quad' ? pickVariant(quads, variants.quad) : pickVariant(tris, variants.tri);
-  return pm ?? null;
+  return pm ? { pm, mountO } : null;
 }
 
 /** translucent preview triangles for the plate tool: the plate as it would be
@@ -357,11 +357,11 @@ export function mountedPlatePositions(
   slotO: number, data: GameData, variants: PlateVariants,
   overrideId?: string | null,
 ): number[] | null {
-  const pm = plateMeshFor(cube, slotO, data, variants, undefined, overrideId);
-  if (!pm) return null;
+  const found = plateMeshFor(cube, slotO, data, variants, undefined, overrideId);
+  if (!found) return null;
   const pos: number[] = [];
   emitMountedPart((w) => { pos.push(w[0], w[1], w[2]); },
-    [cube.x, cube.y, cube.z], ORIENTATIONS[slotO], pm, false);
+    [cube.x, cube.y, cube.z], ORIENTATIONS[found.mountO], found.pm, false);
   return pos.length ? pos : null;
 }
 
@@ -378,11 +378,11 @@ function addAxisPlates(
     for (let i = 0; i < 6 && i < cb.slots.length; i++) {
       const sl = cb.slots[i];
       if (!sl.p) continue;
-      const pm = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
-      if (!pm) continue;
+      const found = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
+      if (!found) continue;
       emitMountedPart((w, n, uv, tex) => {
         b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
-      }, [cb.x, cb.y, cb.z], ORIENTATIONS[sl.o], pm, texOn);
+      }, [cb.x, cb.y, cb.z], ORIENTATIONS[found.mountO], found.pm, texOn);
     }
   }
 }
@@ -390,9 +390,11 @@ function addAxisPlates(
 /* ── non-axis faces (k7 cut / k6 slope / k4 diagonal, slot 6): the named
       '=default' plates (p2121/p222A/p222V, identified via the cracked resource
       CRC) are authored IN the unit cell on their slanted planes, so they mount
-      like shells: rotated by R(cube.o)·R(slot6.o) about the cell centre.
-      slot6.o is 0 on every fleet k6/k4 and varies on k7 — a spin about the cut
-      diagonal, composed in the cube's local frame. ── */
+      like shells: rotated by R(cube.o) ALONE about the cell centre. slot6.o is
+      NOT a mounting rotation — measured across all 30 fleet k7s, its nonzero
+      values (17/15/21/5/8, deterministic per cube.o) are never cut-plane
+      spins, and composing them threw 8 of 25 plates off their faces (the
+      Punisher "fin"). R(cube.o) alone lands 25/25 base-on-plane. ── */
 const NON_AXIS_TYPE: Record<number, 'p2121' | 'p222A' | 'p222V'> = {
   2: 'p2121', 3: 'p222A', 1: 'p222V',
 };
@@ -411,12 +413,12 @@ function addNonAxisPlates(
     const override = overrideId ? data.plates.get(overrideId) : undefined;
     const pm = override && override.faceType === NON_AXIS_FACE[cb.shape]
       ? override.mesh : types[typeName];
-    const Mc = ORIENTATIONS[cb.o], Ms = ORIENTATIONS[cb.slots[6].o];
-    if (!pm || !Mc || !Ms) continue;
+    const Mc = ORIENTATIONS[cb.o];
+    if (!pm || !Mc) continue;
     const mslot = slotOf(cb.comp);
     emitMountedPart((w, n, uv, tex) => {
       b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
-    }, [cb.x, cb.y, cb.z], matMul9(Mc, Ms), pm, texOn);
+    }, [cb.x, cb.y, cb.z], Mc, pm, texOn);
   }
 }
 
