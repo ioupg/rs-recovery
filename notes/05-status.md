@@ -238,12 +238,20 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
   full-size with feet stopping exactly at the window edge. Coincident
   surfaces always face opposite ways, so mesh/parts mode renders FrontSide
   and mounts everything at scale 1: PLATE_MARGIN, FILL_INSET, MODULE_SCALE
-  and the editor's per-face shell rim cull are all gone from both apps. The
-  cage behind the window (m1*slot for plain hull) is what makes open faces
-  leak-free — the engine never had a filler. Before/after of the old
-  artifacts: `gaps-offset.jpg`/`ao-wrong.jpg` vs
+  and the editor's per-face shell rim cull are all gone from both apps.
+  Before/after of the old artifacts: `gaps-offset.jpg`/`ao-wrong.jpg` vs
   `img/flush-viewer-dragonfly-frames.jpeg`,
   `img/flush-editor-dragonfly-closeup.jpeg`.
+- **Systems are view-exclusive (same day, corrects a brief cage-in-mesh-mode
+  interlude):** a compartment is a logical property that can sit on prismatic
+  cubes too, where the cube-authored m1* cages would clip through the slant
+  shells — so no dressed render draws interior cages, in either app; frames
+  are hollow the engine's way. Systems appear only in the dedicated systems
+  view (editor Systems mode; viewer `systems` toggle, exclusive with `parts`):
+  system cages over a translucent hull silhouette. Viewer also gained a bloom
+  regrade (`setBloomLook` — key up, fill down, so lit faces clip past the
+  bloom threshold and leak) and a bow-first fly-through ship-change
+  transition with a braking camera tween.
 - `.gitattributes` marks data files `binary` — never remove it, CRLF conversion
   would corrupt the `.rsconstruction` files.
 - Cloudflare redirects `/parts.html` → `/parts`; check with `curl -L`.

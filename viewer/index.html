@@ -131,6 +131,7 @@
   <button id="btnTex" aria-pressed="true">textures</button>
   <button id="btnAO" aria-pressed="true">shading</button>
   <button id="btnParts" aria-pressed="false" title="Recovered part meshes in place of the procedural facets">parts</button>
+  <button id="btnSystems" aria-pressed="false" title="Internal system meshes over a hull silhouette">systems</button>
   <button id="btnSpace" aria-pressed="false" title="Space instead of the editor grid">space</button>
   <button id="btnBloom" aria-pressed="false" title="Bloom on bright areas">bloom</button>
   <button id="btnPlate" title="Cycle the decoration plate candidates">plate</button>
@@ -642,12 +643,12 @@ renderer.domElement.addEventListener('pointermove', e=>{
 });
 renderer.domElement.addEventListener('pointerup', ()=>drag=null);
 renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault());
-renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); orbit.r *= (1 + Math.sign(e.deltaY)*.09); orbit.r=Math.max(3,Math.min(120,orbit.r)); }, {passive:false});
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); camTween=null; orbit.r *= (1 + Math.sign(e.deltaY)*.09); orbit.r=Math.max(3,Math.min(120,orbit.r)); }, {passive:false});
 
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
 let compColorOn=true, edgesOn=true, texOn=true, aoOn=true, partsOn=false;
-let spaceOn=false, bloomOn=false;
+let systemsOn=false, spaceOn=false, bloomOn=false;
 /* which decoration plate to use — the archive has 11 square candidates and the
    engine's choice is not recoverable, so it is exposed rather than hard-coded */
 let plateVariant = 1;
@@ -673,10 +674,14 @@ let currentName=null;
 
 function buildShip(name, keepView) {
   const view = keepView ? {th:orbit.th, ph:orbit.ph, r:orbit.r} : null;
+  /* switching SHIPS gets the fly-through transition; rebuilding the same ship
+     (mode/toggle changes) swaps in place */
+  const shipChanged = currentName !== null && name !== currentName;
   currentName = name;
   const ship = SHIPS[name];
-  if (group) { scene.remove(group); group.traverse(o=>{o.geometry&&o.geometry.dispose(); o.material&&o.material.dispose();}); }
+  if (group) { if (shipChanged) flyOut(group); else disposeGroup(group); }
   group = new THREE.Group();
+  if (shipChanged) group.userData.flyIn = true;    // finishShip launches it once centered
 
   /* collect world-space faces */
   const faces=[];                       // {verts:[[x,y,z]..], comp}
@@ -707,6 +712,75 @@ function buildShip(name, keepView) {
     }
     return true;
   });
+
+  /* ── systems view: internal system meshes over a hull silhouette ──
+     Exclusive with the dressed renders. A compartment is a logical property
+     that can sit on prismatic cubes too, so the cube-authored m1* cages never
+     join a dressed render — here they are the subject, drawn shrunk so cells
+     read apart, with the whole hull (wings included) as one ghost skin. */
+  if (systemsOn && typeof MODULE_MESH !== 'undefined' && MODULE_MESH.length) {
+    const occ2 = occupancyOf(ship.cubes);
+    const SCALE = .88;
+    const pos=[], nrm=[], col=[];
+    for (const cb of ship.cubes) {
+      if (cb.comp === HULL_ID) continue;      // hull reads from the silhouette
+      const mm = MODULE_MESH[cb.comp % MODULE_MESH.length];
+      const M = ORIENTATIONS[cb.o];
+      const own = `${cb.x},${cb.y},${cb.z}`;
+      const c = compColorOn ? new THREE.Color(COMP[cb.comp].c)
+                            : new THREE.Color(COMP[HULL_ID].c);
+      for (const sm3 of mm.sub) for (const i of sm3.idx) {
+        const p0 = [(sm3.pos[i*3]-.5)*SCALE,
+                    (sm3.pos[i*3+1]-.5)*SCALE,
+                    (sm3.pos[i*3+2]-.5)*SCALE];
+        const w = [M[0]*p0[0]+M[1]*p0[1]+M[2]*p0[2]+.5+cb.x,
+                   M[3]*p0[0]+M[4]*p0[1]+M[5]*p0[2]+.5+cb.y,
+                   M[6]*p0[0]+M[7]*p0[1]+M[8]*p0[2]+.5+cb.z];
+        const n0 = [sm3.nrm[i*3], sm3.nrm[i*3+1], sm3.nrm[i*3+2]];
+        const n = [M[0]*n0[0]+M[1]*n0[1]+M[2]*n0[2],
+                   M[3]*n0[0]+M[4]*n0[1]+M[5]*n0[2],
+                   M[6]*n0[0]+M[7]*n0[1]+M[8]*n0[2]];
+        pos.push(...w); nrm.push(...n);
+        const a = aoOn ? vertexAO(w, n, occ2, own) : 1;
+        col.push(c.r*a, c.g*a, c.b*a);
+      }
+    }
+    const gp = new THREE.BufferGeometry();
+    gp.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+    gp.setAttribute('normal', new THREE.Float32BufferAttribute(nrm,3));
+    gp.setAttribute('color', new THREE.Float32BufferAttribute(col,3));
+    meshSolid = new THREE.Mesh(gp, new THREE.MeshStandardMaterial({
+      vertexColors:true, side:THREE.FrontSide, roughness:.72, metalness:.14}));
+    meshSolid.castShadow = meshSolid.receiveShadow = true;
+    gp.userData = {col, colHull:col, ao:null};
+    group.add(meshSolid);
+    /* silhouette: every kept facet plus the wing rings as one ghost skin;
+       depthWrite off so the veil never occludes the cages inside it */
+    const sp=[];
+    for (const f of kept)
+      for (let i=1; i<f.verts.length-1; i++)
+        sp.push(...f.verts[0], ...f.verts[i], ...f.verts[i+1]);
+    for (const el of ship.elements) {
+      const ring = WING_RING[el.kind];
+      if (!ring) continue;
+      const vs = ring.map(ci => {
+        const p = rot(el.o, corner(ci));
+        return [p[0]+el.x, p[1]+el.y, p[2]+el.z];
+      });
+      for (let i=1; i<vs.length-1; i++) sp.push(...vs[0], ...vs[i], ...vs[i+1]);
+    }
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(sp,3));
+    group.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({
+      color:0x6F8FA8, transparent:true, opacity:.1,
+      depthWrite:false, side:THREE.DoubleSide})));
+    edgeLines = new THREE.LineSegments(new THREE.EdgesGeometry(sg, 25),
+      new THREE.LineBasicMaterial({color:0xB8CBD9, transparent:true, opacity:.25}));
+    edgeLines.visible = edgesOn;
+    group.add(edgeLines);
+    finishShip(ship, view);
+    return;
+  }
 
   /* ── real part meshes in place of the procedural hull ──
      Each cube shape was matched to a decoded mesh by corner set: the mesh's
@@ -740,34 +814,11 @@ function buildShip(name, keepView) {
         }
       }
     }
-    /* interior module cage per cube, full size — the machinery you see through
-       the window. Every cube carries one: plain hull owns the m1*slot frame,
-       and the cage behind the window is what makes an open face leak-free
-       (the engine never had a filler). */
-    if (typeof MODULE_MESH !== 'undefined' && MODULE_MESH.length) {
-      for (const cb of ship.cubes) {
-        const mm = MODULE_MESH[cb.comp % MODULE_MESH.length];
-        const M = ORIENTATIONS[cb.o];
-        const own = `${cb.x},${cb.y},${cb.z}`;
-        const c = compColorOn ? new THREE.Color(COMP[cb.comp].c)
-                              : new THREE.Color(COMP[HULL_ID].c);
-        for (const sm3 of mm.sub) for (const i of sm3.idx) {
-          const p0 = [sm3.pos[i*3]-.5,
-                      sm3.pos[i*3+1]-.5,
-                      sm3.pos[i*3+2]-.5];
-          const w = [M[0]*p0[0]+M[1]*p0[1]+M[2]*p0[2]+.5+cb.x,
-                     M[3]*p0[0]+M[4]*p0[1]+M[5]*p0[2]+.5+cb.y,
-                     M[6]*p0[0]+M[7]*p0[1]+M[8]*p0[2]+.5+cb.z];
-          const n0 = [sm3.nrm[i*3], sm3.nrm[i*3+1], sm3.nrm[i*3+2]];
-          const n = [M[0]*n0[0]+M[1]*n0[1]+M[2]*n0[2],
-                     M[3]*n0[0]+M[4]*n0[1]+M[5]*n0[2],
-                     M[6]*n0[0]+M[7]*n0[1]+M[8]*n0[2]];
-          pos.push(...w); nrm.push(...n);
-          const a3 = (aoOn ? vertexAO(w, n, occ2, own) : 1) * .78;
-          col.push(c.r*a3, c.g*a3, c.b*a3);
-        }
-      }
-    }
+    /* No interior cages in the dressed render: a compartment is a logical
+       property that can sit on prismatic cubes, and the cube-authored m1*
+       cages would clip through their slant shells. The frames stay hollow,
+       the engine's way; systems rendering belongs to the editor's Systems
+       view. */
 
     /* decoration plates, mounted the engine's way (parity with the editor):
        the slot INDEX is mere storage — the face a slot's plate decorates is
@@ -994,9 +1045,77 @@ function finishShip(ship, view) {
   sc.near = .1; sc.far = rad*3.2;
   sc.updateProjectionMatrix();
   orbit.tgt.set(0,0,0);
-  orbit.r = Math.max(sz.length()*1.35, 8);
+  const rFit = Math.max(sz.length()*1.35, 8);
+  if (group.userData.flyIn) {
+    /* the camera rides the transition too: keep the old framing and brake
+       the zoom into the new fit alongside the incoming ship */
+    delete group.userData.flyIn;
+    tweenCamera(rFit, 700);
+    flyIn(group, rFit*2.6);
+  } else orbit.r = rFit;
   if (view) Object.assign(orbit, view);
   stamp(ship, sz);
+}
+
+/* ════════ ship-change transition ════════
+   One traffic lane through the frame, sailed bow-first (+Z): the outgoing
+   ship accelerates ahead and fades, the incoming one arrives fast astern and
+   brakes hard into place — sharply accented ease curves, no overshoot.
+   Same-ship rebuilds (toggles) never animate. */
+const FLIGHTS = [];
+const easeInQuart = t => t*t*t*t;
+const easeOutQuint = t => 1 - Math.pow(1-t, 5);
+function groupFade(g, k) {
+  g.traverse(o => { const m = o.material; if (!m) return;
+    if (m.userData.trBase === undefined) { m.userData.trBase = m.opacity; m.userData.trFlag = m.transparent; }
+    m.transparent = true; m.opacity = m.userData.trBase * k; });
+}
+function groupUnfade(g) {
+  g.traverse(o => { const m = o.material; if (!m || m.userData.trBase === undefined) return;
+    m.opacity = m.userData.trBase; m.transparent = m.userData.trFlag;
+    delete m.userData.trBase; });
+}
+function disposeGroup(g) {
+  scene.remove(g);
+  g.traverse(o => { o.geometry && o.geometry.dispose(); o.material && o.material.dispose(); });
+}
+function flyOut(g) {
+  /* still flying in? take over from wherever it is */
+  const i = FLIGHTS.findIndex(f => f.g === g);
+  if (i >= 0) FLIGHTS.splice(i, 1);
+  const cz = g.userData.cz !== undefined ? g.userData.cz : g.position.z;
+  FLIGHTS.push({ g, mode:'out', t0:performance.now(), dur:420,
+                 cz, z0:g.position.z - cz, D:orbit.r*2.6 });
+}
+function flyIn(g, D) {
+  g.userData.cz = g.position.z;
+  if (D === undefined) D = orbit.r*2.6;
+  FLIGHTS.push({ g, mode:'in', t0:performance.now(), dur:700, cz:g.userData.cz, D });
+  g.position.z = g.userData.cz - D;
+  groupFade(g, 0);
+}
+let camTween = null;
+function tweenCamera(r1, dur) {
+  camTween = { t0: performance.now(), dur, r0: orbit.r, r1 };
+}
+function stepFlights(now) {
+  if (camTween) {
+    const t = Math.min(1, (now - camTween.t0) / camTween.dur);
+    orbit.r = camTween.r0 + (camTween.r1 - camTween.r0) * easeOutQuint(t);
+    if (t >= 1) camTween = null;
+  }
+  for (let i = FLIGHTS.length-1; i >= 0; i--) {
+    const f = FLIGHTS[i], t = Math.min(1, (now - f.t0) / f.dur);
+    if (f.mode === 'out') {
+      f.g.position.z = f.cz + f.z0 + f.D * easeInQuart(t);
+      groupFade(f.g, (1-t)*(1-t));
+      if (t >= 1) { FLIGHTS.splice(i, 1); disposeGroup(f.g); }
+    } else {
+      f.g.position.z = f.cz - f.D * (1 - easeOutQuint(t));
+      groupFade(f.g, Math.min(1, t*2.2));
+      if (t >= 1) { FLIGHTS.splice(i, 1); f.g.position.z = f.cz; groupUnfade(f.g); }
+    }
+  }
 }
 
 /* ════════ title block ════════ */
@@ -1060,7 +1179,7 @@ btn('btnEdge', on => { edgesOn=on; if(edgeLines) edgeLines.visible=on; });
 btn('btnComp', on => { compColorOn=on; recolor(); });
 btn('btnAO',   on => { aoOn=on;        recolor(); });
 function recolor() {
-  if (partsOn) { if (currentName) buildShip(currentName, true); }
+  if (partsOn || systemsOn) { if (currentName) buildShip(currentName, true); }
   else if (meshSolid) paintColors(meshSolid.geometry);
 }
 btn('btnTex', on => { texOn=on;
@@ -1072,24 +1191,40 @@ document.getElementById('btnPlate').onclick = () => {
   document.getElementById('btnPlate').textContent = 'plate ' + (plateVariant+1) + '/' + n;
 };
 btn('btnSpace', on => { spaceOn=on; setSpace(on); });
-btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); });
+btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); setBloomLook(on); });
+/* parts and systems are exclusive views — engaging one releases the other */
+const release = id => document.getElementById(id).setAttribute('aria-pressed', 'false');
 btn('btnParts', on => { partsOn=on;
-  document.getElementById('btnTex').disabled = on;
+  if (on && systemsOn) { systemsOn = false; release('btnSystems'); }
+  document.getElementById('btnTex').disabled = on || systemsOn;
+  if (currentName) buildShip(currentName, true); });
+btn('btnSystems', on => { systemsOn=on;
+  if (on && partsOn) { partsOn = false; release('btnParts'); }
+  document.getElementById('btnTex').disabled = on || partsOn;
   if (currentName) buildShip(currentName, true); });
 
 /* ════════ loop ════════ */
 /* ════════ bloom ════════
-   Selective by threshold rather than by layer: the hull sits well below it, so
-   only star cores and the brightest lit facets bleed. */
+   Selective by threshold rather than by layer — but the flat editor look
+   keeps every hull pixel under any usable threshold, so bloom alone changes
+   nothing. Engaging it therefore also regrades the scene: the key light is
+   pushed into overbright and the fill pulled down, so lit faces clip past
+   the threshold and leak while shadow sides deepen. Star cores bloom on
+   their own either way. */
 let composer = null, bloomPass = null;
 function initBloom() {
   if (composer) return;
   const w = stage.clientWidth, h = stage.clientHeight;
   composer = new THREE.EffectComposer(renderer);
   composer.addPass(new THREE.RenderPass(scene, camera));
-  bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), .55, .62, .93);
+  bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(w, h), .8, .55, .88);
   composer.addPass(bloomPass);
   composer.setSize(w, h);
+}
+function setBloomLook(on) {
+  key.intensity  = on ? 2.1 : 1.15;
+  hemi.intensity = on ? .55 : .9;
+  rim.intensity  = on ? .8  : .45;
 }
 function resize() {
   const w=stage.clientWidth, h=stage.clientHeight;
@@ -1099,6 +1234,7 @@ function resize() {
 addEventListener('resize', resize); resize();
 (function tick(){
   requestAnimationFrame(tick);
+  stepFlights(performance.now());
   if (orbit.auto && !drag) orbit.th += .0022;
   orbit.th += orbit.vth; orbit.ph += orbit.vph;
   orbit.vth*=.88; orbit.vph*=.88;

@@ -64,6 +64,7 @@ export class ShipView {
 
   private mesh: THREE.Mesh | null = null;
   private edgeLines: THREE.LineSegments | null = null;
+  private silhouette: THREE.Mesh | null = null;
   private _pickMesh: THREE.Mesh | null = null;
   private _tris: readonly PickTri[] = [];
 
@@ -135,6 +136,20 @@ export class ShipView {
     mesh.receiveShadow = true;
     this.sceneCtx.shipRoot.add(mesh);
     this.mesh = mesh;
+
+    if (naked) {
+      /* Systems view: the systems draw over a translucent hull silhouette —
+         the whole dressed shape (wings and extras included) as one ghost
+         surface. depthWrite off so the veil never occludes the cages inside;
+         being transparent it renders after them and reads as a skin. */
+      const ghost = buildShipGeometry(doc, this.data, { ...opts, mode: 'box', ao: false });
+      const sil = new THREE.Mesh(ghost.geometry, new THREE.MeshBasicMaterial({
+        color: 0x6f8fa8, transparent: true, opacity: 0.1,
+        depthWrite: false, side: THREE.DoubleSide,
+      }));
+      this.sceneCtx.shipRoot.add(sil);
+      this.silhouette = sil;
+    }
 
     if (this.options.edges && built.edges) {
       const eg = new THREE.EdgesGeometry(built.edges, built.edgesThreshold);
@@ -284,6 +299,12 @@ export class ShipView {
       this.mesh.geometry.dispose();
       this.mesh = null;
       // materials are cache-owned — never disposed here
+    }
+    if (this.silhouette) {
+      this.sceneCtx.shipRoot.remove(this.silhouette);
+      this.silhouette.geometry.dispose();
+      (this.silhouette.material as THREE.Material).dispose();
+      this.silhouette = null;
     }
     if (this.edgeLines) {
       this.sceneCtx.shipRoot.remove(this.edgeLines);

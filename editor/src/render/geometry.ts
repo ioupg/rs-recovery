@@ -211,11 +211,10 @@ function addShells(
   }
 }
 
-/* interior module cage per cube — the machinery you see through the window.
-   Cages are cell-authored full size like everything else; their face-plane
-   feet stop exactly at the shell's window edge (measured: zero-area contact
-   with the rim), so scale 1 is the engine mounting. naked mode passes a
-   cosmetic shrink instead. */
+/* interior module cage per system cube — Systems view only. The cage meshes
+   are cube-authored, but a compartment is a logical property that can sit on
+   any shape, so cages never join a dressed render (they would clip through a
+   prismatic shell). Drawn shrunk so cells read apart and rays slip between. */
 function addModules(
   b: SlotBuckets, doc: ShipDoc, data: GameData, occ: Occupancy, aoOn: boolean,
   texOn: boolean, includeHull = false, moduleScale = 1,
@@ -223,8 +222,7 @@ function addModules(
   const N = data.moduleMesh.length;
   if (!N) return;
   for (const cb of doc.cubes) {
-    /* every cube carries a cage — plain hull owns the m1*slot frame; the
-       dressed view before the flush refactor hid it behind a filler */
+    /* plain hull carries no system — it reads from the silhouette */
     if (cb.comp === HULL_COMP && !includeHull) continue;
     /* index = compartment id: cages are name-bound to systems since the
        resource-id crack (m1*power=comp0 … m1*cargo=comp9); registered systems
@@ -468,14 +466,14 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   const occ = occupancyOf(doc.cubes);
 
   if (opts.mode === 'naked') {
-    /* the ship's guts: every cell's internal system mesh (name-bound m1*
-       cages, hull's m1*slot frame included) with the skin stripped — what a
-       destroyed plate would expose. The hull itself stays as a faint edge
-       overlay for spatial reference. */
+    /* Systems view — the exclusive home of the interior system meshes.
+       Compartments are a logical property and can sit on prismatic blocks
+       whose slant the cube-authored cages would clip through, so no dressed
+       view renders them; here they draw over a translucent hull silhouette
+       (shipView adds it) instead. System cubes only — plain hull reads from
+       the silhouette. */
     const b = new SlotBuckets(opts.textures);
-    addModules(b, doc, data, occ, opts.ao, opts.textures, true, NAKED_MODULE_SCALE);
-    addWings(b, doc, occ, opts.ao, opts.textures, true);
-    addExtras(b, doc, data, occ, opts.ao, opts.textures, false);
+    addModules(b, doc, data, occ, opts.ao, opts.textures, false, NAKED_MODULE_SCALE);
     const { geometry, groupSlots, groupTex } = b.build();
     const kept = cullFacets(collectFacets(doc.cubes));
     const frame = fanGeometry(kept.map(f => f.verts));
@@ -487,11 +485,11 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   if (opts.mode === 'mesh') {
     /* with textures on, the archive's own UVs and per-submesh diffuse maps are
        emitted and triangles group by (slot, texture) instead of slot alone.
-       Rendered FrontSide: complete frames, full-size cages behind every
-       window (m1*slot for plain hull) — no filler, no insets. */
+       Rendered FrontSide: complete frames, hollow the engine's way — the
+       interior system meshes belong to the Systems view alone (a cage can sit
+       in a prismatic cube and would clip through its slant shell). */
     const b = new SlotBuckets(opts.textures);
     addShells(b, doc, data, occ, opts.ao, opts.textures);
-    addModules(b, doc, data, occ, opts.ao, opts.textures, true);
     if (opts.plates) {
       addAxisPlates(b, doc, data, occ, opts.ao, opts.plateVariants, opts.textures);
       addNonAxisPlates(b, doc, data, occ, opts.ao, opts.textures);

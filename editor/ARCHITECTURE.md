@@ -172,11 +172,15 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
   normals, AO in vertex color when on. No chamfer/atlas/plates. Wings included
   (slot 'wing'). This is the fast editing mode.
 - **plate**: box + chamfer(0.07) + atlas UVs + facet tone jitter (viewer 974-1051).
-- **mesh**: shells + interior cages (every cube — plain hull carries m1*slot)
-  + decoration plates + wings, all mounted flush at scale 1 and rendered
-  FrontSide (wing slot stays DoubleSide for the zero-thickness w2121
-  fallback). Module/plate brightness factors (0.78/1.06) bake into vertex
-  color. No filler, no margins.
+- **mesh**: shells + decoration plates + wings, all mounted flush at scale 1
+  and rendered FrontSide (wing slot stays DoubleSide for the zero-thickness
+  w2121 fallback). Hollow the engine's way — NO interior cages: a compartment
+  is a logical property that can sit on prismatic cubes, and the cube-authored
+  m1* meshes would clip through slant shells. No filler, no margins.
+- **naked** (Systems view): the exclusive home of the m1* system cages —
+  system cubes only, shrunk (NAKED_MODULE_SCALE), drawn over a translucent
+  hull silhouette that shipView builds from the box geometry (depthWrite off).
+  Plain hull reads from the silhouette alone.
 - Vertex color = AO (and tone factors) in all modes; grouping by cube comp slot.
 
 ### pick.ts

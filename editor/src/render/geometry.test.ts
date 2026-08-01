@@ -182,15 +182,21 @@ describe('flush mounting (the engine scheme — no insets, no margins)', () => {
     expect(minZ).toBeLessThan(0);             // relief stands out of the hull
   });
 
-  it('mesh mode emits no filler: triangle count is exactly shells+cages+plates+wings+skins', () => {
-    /* the bare doc with plates and wings off reduces to shells + cages only —
-       every triangle must come from an archive part, all cell-authored */
+  it('dressed mesh mode is hollow: with plates off, every triangle is a shell', () => {
+    /* no filler and no cages — compartments are logical and can sit on
+       prismatic cubes, so interior meshes belong to the Systems view alone */
     const built = buildShipGeometry(doc, data, opts({ mode: 'mesh', plates: false }));
     const shellTris = doc.cubes.reduce(
       (s, c) => s + (data.shapeMesh[String(c.shape)]?.sub.reduce((a, m) => a + m.idx.length / 3, 0) ?? 0), 0);
+    expect(built.geometry.getAttribute('position').count / 3).toBe(shellTris);
+  });
+
+  it('naked mode carries exactly the system cages — hull cubes contribute nothing', () => {
+    const built = buildShipGeometry(doc, data, opts({ mode: 'naked' }));
     const cageTris = doc.cubes.reduce(
-      (s, c) => s + (data.moduleMesh[c.comp]?.sub.reduce((a, m) => a + (m.nrm ? m.idx.length / 3 : 0), 0) ?? 0), 0);
-    expect(built.geometry.getAttribute('position').count / 3).toBe(shellTris + cageTris);
+      (s, c) => s + (c.comp === 8 ? 0
+        : data.moduleMesh[c.comp]?.sub.reduce((a, m) => a + (m.nrm ? m.idx.length / 3 : 0), 0) ?? 0), 0);
+    expect(built.geometry.getAttribute('position').count / 3).toBe(cageTris);
   });
 });
 
