@@ -51,8 +51,11 @@ id string (alphanumeric and hyphens only; e.g. `bare-metal`, `hull-paint-white`)
 
 **Map files** (all optional, PNGs):
 
-- **albedo.png** — sRGB color/diffuse, 1K (1024²) target. Color-only; the alpha
-  channel (if present) is ignored. Seamless/tileable is recommended.
+- **albedo.png / albedo.jpg** — sRGB color/diffuse, 1K (1024²) target. Color-only;
+  the alpha channel (if present) is ignored. Seamless/tileable is recommended.
+  JPEG (quality ≈90) is the committed norm for this map — sRGB color survives
+  lossy compression fine and it keeps the library lean; the data maps
+  (normal/orm) stay lossless PNG.
 - **normal.png** — OpenGL normal-map convention (green = +Y / up; DirectX green=−Y maps
   render with inverted bumps). Provided at 1K; the vite plugin does NOT currently
   pack with BC5 compression, so raw OpenGL is expected. flipY=false in the loader
@@ -133,8 +136,13 @@ export). Needs decal capture in GLB export + viewer render layer for decals.
 ## 4. Starter set and workflow
 
 **materials/materials.json** ships 8 map-less scalar materials (bare-metal variants,
-hull paints, rubber) as a curated starting set. No associated map files — they are
-pure color/roughness/metalness definitions.
+hull paints, rubber) as a curated starting set — pure color/roughness/metalness
+definitions — plus 20 mapped 1K sets ingested 2026-08-01 from two PBR drops
+(FreePBR `-bl` packs downscaled 2K→1K, and stem-grouped 3dtextures-style sets):
+albedo.jpg + normal.png (every source verified OpenGL green-up by correlating
+the normal's G channel against the height-map gradient) + orm.png packed per
+spec §2; `sci-fi-wall-016` and `sci-fi-metal-panel-004` also carry emissive.png.
+Source height maps were dropped (no height/displacement slot in LibMaterialMaps).
 
 **Workflow:**
 

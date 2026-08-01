@@ -35,3 +35,6 @@ tmp/
 __pycache__/
 # editor: curated material library mirror (copied from materials/ by the vite plugin)
 editor/public/materials/
+
+# PBR texture source drops (raw 2K sources; ingested into materials/ at 1K)
+_textures/
