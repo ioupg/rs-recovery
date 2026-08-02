@@ -1,0 +1,15 @@
+/* The editor is its own assets-only Worker, deployed from this directory —
+   no more copying the build into the viewer source tree. The route takes
+   the /editor* path space over the viewer worker's custom-domain fallback
+   (routes are more specific than custom domains on the same hostname).
+   Deploy: npm run deploy (build + wrangler deploy). */
+{
+  "name": "rs-editor",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [
+    { "pattern": "rs.ioupg.com/editor*", "zone_name": "ioupg.com" }
+  ]
+}

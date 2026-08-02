@@ -71,7 +71,10 @@ export default defineConfig({
   base: '/editor/',
   plugins: [rsDataPlugin()],
   build: {
-    outDir: '../viewer/editor',
+    /* dist/editor (not dist/) so the wrangler asset dir ./dist mirrors the
+       live URL space — Workers assets match the FULL request path, and the
+       editor worker's route is rs.ioupg.com/editor* */
+    outDir: 'dist/editor',
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
   },

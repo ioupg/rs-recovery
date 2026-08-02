@@ -48,8 +48,10 @@ is untouched. Structure and contracts: `editor/ARCHITECTURE.md`.
   `viewer/ships.js` + `viewer/shapes.js` on every dev/build, so the python
   pipeline stays the single source of truth.
 
-Workflow: `cd editor && npm run dev` · `npm test` (109 vitest) ·
-`npm run build` (→ `viewer/editor/`) then `wrangler deploy` from the root.
+Workflow: `cd editor && npm run dev` · `npm test` ·
+`npm run deploy` (build → `editor/dist/`, then the `rs-editor` worker takes
+`rs.ioupg.com/editor*` by route). The viewer deploys separately:
+`wrangler deploy` from the root (`rs-fleet-registry`, custom domain).
 
 ---
 

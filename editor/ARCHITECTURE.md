@@ -1,8 +1,10 @@
 # RS Constructor — architecture contract
 
 Vite + TypeScript + three.js (r185) app. Ships as `/editor` next to the untouched
-viewer (`../viewer`). Build: `npm run build` → `../viewer/editor` (deployed by
-`wrangler deploy` from repo root).
+viewer (`../viewer`). Build: `npm run build` → `dist/editor` (gitignored);
+`npm run deploy` publishes it as the `rs-editor` worker on the route
+`rs.ioupg.com/editor*` — independent of the viewer's `rs-fleet-registry`
+worker (custom domain, deployed from repo root).
 
 **Hard rules**
 

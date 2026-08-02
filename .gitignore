@@ -23,8 +23,10 @@ node_modules/
 
 # editor: generated data mirror (rebuilt by the vite plugin on every dev/build)
 editor/public/data/
-# editor: build output — committed only at deploy milestones via viewer/editor
 editor/public/textures/
+# editor: build output — deployed straight from here by the rs-editor worker,
+# never committed (the old committed viewer/editor copy is gone)
+editor/dist/
 
 # SharedTec engine source drop (analysis working copy; archive to source/ if wanted)
 tmp/
