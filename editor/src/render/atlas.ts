@@ -98,6 +98,11 @@ function makeAtlas(): THREE.CanvasTexture {
     striate(g, 0, 64, 2, 214, 224); seams(g, [[0, 120, 256, 116]], 212); });
 
   const tex = new THREE.CanvasTexture(cv);
+  /* canvas pixels are sRGB-authored; untagged, three sampled them as linear
+     and plate mode read ~25% brighter than drawn (notes/09-render-path.md
+     §3.5). Decoded properly the palette renders as authored — any further
+     brightness taste-tuning belongs in the Render tab, not the grays. */
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 8;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = true;
