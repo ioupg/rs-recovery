@@ -4,8 +4,12 @@
 import * as THREE from 'three';
 import type { Cube, ShapeId, Vec3, Wing } from '../core/types';
 import {
-  REFLECT_SHAPE, REFLECT_WING, SLOT_AXES, WING_NAMES, plateCanonical, plateFaceDir, rotateOrient,
+  REFLECT_SHAPE, REFLECT_WING, WING_NAMES, plateFaceDir, rotateOrient,
 } from '../core/tables';
+import {
+  clearPlatesPatch, reflectSlotsPatch, resolvePlateSlot, rotateSlotsPatch,
+} from '../core/plateOps';
+import type { PlateSlotRes } from '../core/plateOps';
 import type { PlateSlot } from '../core/types';
 import type { RenderMode } from '../render/geometryTypes';
 import { MODE_DEFS, TOOL_DEFS, toolDef } from './tools';
@@ -193,7 +197,7 @@ export class EditorController {
       if (state.tool === 'plate' && 'shape' in ent) {
         const res = this.plateSlotFor(ent as Cube, hit.tri.exit);
         if (!res) { view.setPlateGhost(null, true); setStatus('no plate mounts here'); return; }
-        const on = this.plateState(ent as Cube, res);
+        const on = res.mounted;
         const ghostO = on ? (ent as Cube).slots![res.idx].o : res.canonO;
         const ghostKind = on ? (ent as Cube).plateKinds?.[res.idx] : state.activePlate;
         const pos = hit.tri.exit
@@ -420,28 +424,12 @@ export class EditorController {
 
   /* ── plate tool: per-face decoration on recovered slot data. The face a
         mounted axis plate decorates is R(slot.o)·(0,0,−1) in world (fleet-
-        verified), so slots are resolved by orientation, not by index; the
-        non-axis face (cut/slope/diagonal) is always slot 6. ── */
+        verified), so MOUNTED slots are resolved by orientation; bare faces by
+        their local axis index (core/plateOps.ts); the non-axis face
+        (cut/slope/diagonal) is always slot 6. ── */
 
-  /** resolve the slot for a face given its outward world direction; when no
-      existing slot maps there, fall back to the world-axis-ordered index */
-  private plateSlotFor(cube: Cube, dir: Vec3 | null): { idx: number; canonO: number } | null {
-    if (!dir) return cube.shape === 0 ? null : { idx: 6, canonO: cube.slots?.[6]?.o ?? 0 };
-    const axisIdx = SLOT_AXES.findIndex(a =>
-      a[0] === dir[0] && a[1] === dir[1] && a[2] === dir[2]);
-    if (axisIdx < 0) return null;
-    if (cube.slots) {
-      for (let i = 0; i < 6 && i < cube.slots.length; i++) {
-        const d = plateFaceDir(cube.slots[i].o);
-        if (d[0] === dir[0] && d[1] === dir[1] && d[2] === dir[2])
-          return { idx: i, canonO: cube.slots[i].o };
-      }
-    }
-    return { idx: axisIdx, canonO: plateCanonical(cube.shape as ShapeId, cube.o, dir as [number, number, number]) };
-  }
-
-  private plateState(cube: Cube, res: { idx: number }): boolean {
-    return cube.slots?.[res.idx] ? cube.slots[res.idx].p !== 0 : false;
+  private plateSlotFor(cube: Cube, dir: Vec3 | null): PlateSlotRes | null {
+    return resolvePlateSlot(cube, dir);
   }
 
   private platePatch(cube: Cube, res: { idx: number; canonO: number },
@@ -466,12 +454,13 @@ export class EditorController {
     return { uid: cube.uid, patch };
   }
 
-  /** the same face on the symmetry twin, as (cube, resolution) pairs */
-  private plateTargets(cube: Cube, dir: Vec3 | null): { cube: Cube; res: { idx: number; canonO: number } }[] {
+  /** the same face on the symmetry twin, as (cube, resolution, face dir) */
+  private plateTargets(cube: Cube, dir: Vec3 | null):
+      { cube: Cube; res: PlateSlotRes; dir: Vec3 | null }[] {
     const { state, model } = this.o;
-    const out: { cube: Cube; res: { idx: number; canonO: number } }[] = [];
+    const out: { cube: Cube; res: PlateSlotRes; dir: Vec3 | null }[] = [];
     const res = this.plateSlotFor(cube, dir);
-    if (res) out.push({ cube, res });
+    if (res) out.push({ cube, res, dir });
     if (state.symmetry.on) {
       const twins = mirrorTwinUids([cube.uid], state.symmetry.planeX2,
         u => model.byUid(u), (x, y, z) => model.cubeAt(x, y, z), () => model.doc.wings);
@@ -480,7 +469,7 @@ export class EditorController {
         if (!twin || !('shape' in twin)) continue;
         const mdir: Vec3 | null = dir ? [-dir[0], dir[1], dir[2]] : null;
         const tres = this.plateSlotFor(twin as Cube, mdir);
-        if (tres) out.push({ cube: twin as Cube, res: tres });
+        if (tres) out.push({ cube: twin as Cube, res: tres, dir: mdir });
       }
     }
     return out;
@@ -497,7 +486,7 @@ export class EditorController {
     const targets = this.plateTargets(cube as Cube, hit.tri.exit);
     if (!targets.length) return;
     const active = state.activePlate;
-    const mounted = this.plateState(cube as Cube, targets[0].res);
+    const mounted = targets[0].res.mounted;
     const curKind = (cube as Cube).plateKinds?.[targets[0].res.idx] ?? null;
     let entries: { uid: number; patch: Partial<Cube> }[];
     let status: string;
@@ -508,7 +497,13 @@ export class EditorController {
       entries = targets.map(t => this.platePatch(t.cube, t.res, { kind: active }));
       status = 'plate mesh swapped';
     } else {
-      entries = targets.map(t => this.platePatch(t.cube, t.res, { p: 0, kind: null }));
+      /* clear every mounted slot on that face, not just the resolved one —
+         duplicate world orientations are corruption and removal heals them */
+      entries = targets.flatMap(t => {
+        if (!t.dir) return [this.platePatch(t.cube, t.res, { p: 0, kind: null })];
+        const patch = clearPlatesPatch(t.cube, t.dir);
+        return patch ? [{ uid: t.cube.uid, patch }] : [];
+      });
       status = 'plate removed';
     }
     history.run(new PatchCubes(entries));
@@ -528,7 +523,7 @@ export class EditorController {
     const targets = this.plateTargets(cube as Cube, hit.tri.exit);
     const entries: { uid: number; patch: Partial<Cube> }[] = [];
     for (const t of targets) {
-      if (!this.plateState(t.cube, t.res)) continue;
+      if (!t.res.mounted) continue;
       const cur = t.cube.slots![t.res.idx];
       const d = plateFaceDir(cur.o);
       const axis = (d[0] !== 0 ? 0 : d[1] !== 0 ? 1 : 2) as 0 | 1 | 2;
@@ -632,13 +627,13 @@ export class EditorController {
 
   private rotate(dir: 1 | -1): void {
     if (this.rotateHoveredPlate(dir)) return;
-    this.applyOrientMap(o => ((o + dir) % 24 + 24) % 24);
+    this.applyOrientMap(o => ((o + dir) % 24 + 24) % 24, undefined, rotateSlotsPatch);
   }
 
   /** ±90° about a world axis: composed onto the selection in place, or onto
       the active orientation used for placement */
   rotateAxis(axis: 0 | 1 | 2, dir: 1 | -1): void {
-    this.applyOrientMap(o => rotateOrient(o, axis, dir));
+    this.applyOrientMap(o => rotateOrient(o, axis, dir), undefined, rotateSlotsPatch);
   }
 
   /** delete the current selection (symmetry-aware) — panel button / Del */
@@ -651,19 +646,26 @@ export class EditorController {
   mirrorAxis(axis: 0 | 1 | 2): void {
     this.applyOrientMap(
       (o, shape) => REFLECT_SHAPE[axis][shape][o],
-      (o, kind) => REFLECT_WING[axis][kind][o]);
+      (o, kind) => REFLECT_WING[axis][kind][o],
+      c => reflectSlotsPatch(c, axis));
   }
 
+  /** decor: slots/plateKinds carried along with the reorientation — slot .o
+      is a world mount, so leaving it stale strands plates on old world faces */
   private applyOrientMap(
     map: (o: number, shape: ShapeId) => number,
     wingMap: (o: number, kind: number) => number = o => map(o, 0),
+    decor: (c: Cube, newO: number) => Partial<Cube> = () => ({}),
   ): void {
     const { state, model, history } = this.o;
     if (state.tool === 'select' && state.selection.size) {
       const cubes = [...state.selection]
         .map(u => model.byUid(u))
         .filter((en): en is Cube => !!en && 'shape' in en)
-        .map(c => ({ uid: c.uid, patch: { o: map(c.o, c.shape) } }));
+        .map(c => {
+          const newO = map(c.o, c.shape);
+          return { uid: c.uid, patch: { o: newO, ...decor(c, newO) } };
+        });
       const wings = [...state.selection]
         .map(u => model.byUid(u))
         .filter((en): en is Wing => !!en && !('shape' in en))

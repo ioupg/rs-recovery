@@ -137,7 +137,9 @@ const sandwich = (axis: 0 | 1 | 2, m: readonly number[]): number[] =>
 const matIndex = (m: readonly number[]): number =>
   ORIENTATIONS.findIndex(n => n.every((v, i) => v === m[i]));
 
-function buildReflTable(axis: 0 | 1 | 2, cornersOf: (o: number) => [number, number, number][]): number[] {
+function buildReflTable(
+  axis: 0 | 1 | 2, cornersOf: (o: number) => [number, number, number][],
+): { table: number[]; t: number } {
   const base = key(cornersOf(0));           // o=0 is the identity
   const target = key(reflPts(axis, cornersOf(0)));
   const t = Array.from({ length: 24 }, (_, i) => i).find(i => {
@@ -149,29 +151,35 @@ function buildReflTable(axis: 0 | 1 | 2, cornersOf: (o: number) => [number, numb
   });
   if (t === undefined) throw new Error(`no involutive mirror for base ${base}`);
   const rt = ORIENTATIONS[t];
-  return Array.from({ length: 24 }, (_, o) => {
+  const table = Array.from({ length: 24 }, (_, o) => {
     const idx = matIndex(matMul(sandwich(axis, ORIENTATIONS[o]), rt));
     if (idx < 0) throw new Error(`reflection left the group at o=${o}`);
     return idx;
   });
+  return { table, t };
 }
 
 const AXES = [0, 1, 2] as const;
 
-/** REFLECT_SHAPE[axis][shape][o] → o′ such that (shape,o′) is the mirror of
-    (shape,o) across that world axis */
-export const REFLECT_SHAPE: readonly Record<ShapeId, readonly number[]>[] = AXES.map(a =>
+const SHAPE_REFL = AXES.map(a =>
   Object.fromEntries(
     (Object.keys(FACES).map(Number) as ShapeId[]).map(s => [
       s, buildReflTable(a, o => SHAPE_CORNERS[s].map(i => rot(o, corner(i)))),
     ]),
+  ) as unknown as Record<ShapeId, { table: readonly number[]; t: number }>);
+
+/** REFLECT_SHAPE[axis][shape][o] → o′ such that (shape,o′) is the mirror of
+    (shape,o) across that world axis */
+export const REFLECT_SHAPE: readonly Record<ShapeId, readonly number[]>[] = SHAPE_REFL.map(per =>
+  Object.fromEntries(
+    (Object.keys(per).map(Number) as ShapeId[]).map(s => [s, per[s].table]),
   ) as unknown as Record<ShapeId, readonly number[]>);
 
 /** REFLECT_WING[axis][kind][o] → o′ for wing rings */
 export const REFLECT_WING: readonly Record<number, readonly number[]>[] = AXES.map(a =>
   Object.fromEntries(
     WING_KINDS.map(k => [
-      k, buildReflTable(a, o => WING_RING[k].map(i => rot(o, corner(i)))),
+      k, buildReflTable(a, o => WING_RING[k].map(i => rot(o, corner(i)))).table,
     ]),
   ));
 
@@ -318,3 +326,56 @@ export const AXIS_FACE_KIND: Record<ShapeId, readonly ('quad' | 'tri' | null)[]>
     face plate types by geometry — axis quad p1111, axis tri p121,
     k6 slope p2121, k4 diagonal p222A, k7 cut p222V. */
 export const PLATE_TYPE_NAMES = ['p1111', 'p121', 'p2121', 'p222A', 'p222V'] as const;
+
+/* ── derived group helpers (not exe facts) ──────────────────────
+   Slot .o is a WORLD mount while the slot index is a LOCAL face, so editing
+   operations that reorient a cube must carry the mounts along. These compose
+   inside the group; everything below is provable from ORIENTATIONS alone. */
+
+const transpose = (m: readonly number[]): number[] =>
+  [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
+
+/** group index of R(a)·R(b) — compose a world rotation a onto a mount b */
+export function composeOrient(a: number, b: number): number {
+  const idx = matIndex(matMul(ORIENTATIONS[a], ORIENTATIONS[b]));
+  if (idx < 0) throw new Error('composition left the group');
+  return idx;
+}
+
+/** the world rotation W (group index) with R(to) = W·R(from) — the delta a
+    reorientation from→to applies in world space */
+export function orientDelta(to: number, from: number): number {
+  const idx = matIndex(matMul(ORIENTATIONS[to], transpose(ORIENTATIONS[from])));
+  if (idx < 0) throw new Error('delta left the group');
+  return idx;
+}
+
+/** REFLECT_PLATE[axis][o] → o′ mirroring a plate MOUNT across that world axis:
+    built on the authored footprint (the z=0 cell face), so the mounted
+    footprint of o′ is exactly the mirror image of o's and the decorated face
+    maps covariantly: plateFaceDir(o′) = S_axis·plateFaceDir(o). */
+export const REFLECT_PLATE: readonly (readonly number[])[] = AXES.map(a =>
+  buildReflTable(a, o => [0, 1, 2, 3].map(i => rot(o, corner(i)))).table);
+
+/** MIRROR_SLOT_PERM[axis][shape][i] → j: mirroring a shape across `axis` moves
+    the decoration of local face i onto local face j of the reoriented solid.
+    j solves R(o′)·axis_j = S·R(o)·axis_i with o′ = REFLECT_SHAPE[axis][shape][o],
+    which reduces to axis_j = S·R_t·axis_i — an involution independent of o. */
+export const MIRROR_SLOT_PERM: readonly Record<ShapeId, readonly number[]>[] = AXES.map(a =>
+  Object.fromEntries(
+    (Object.keys(FACES).map(Number) as ShapeId[]).map(s => {
+      const rt = ORIENTATIONS[SHAPE_REFL[a][s].t];
+      const perm = SLOT_AXES.map(axisI => {
+        const v = [
+          rt[0] * axisI[0] + rt[1] * axisI[1] + rt[2] * axisI[2],
+          rt[3] * axisI[0] + rt[4] * axisI[1] + rt[5] * axisI[2],
+          rt[6] * axisI[0] + rt[7] * axisI[1] + rt[8] * axisI[2],
+        ];
+        v[a] = -v[a];                                  // S_axis
+        const j = SLOT_AXES.findIndex(w => w[0] === v[0] && w[1] === v[1] && w[2] === v[2]);
+        if (j < 0) throw new Error('mirror left the axis set');
+        return j;
+      });
+      return [s, perm];
+    }),
+  ) as unknown as Record<ShapeId, readonly number[]>);

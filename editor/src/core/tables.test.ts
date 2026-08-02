@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FACES, FACE_SLOT, ORIENTATIONS, REFLECT_SHAPE, REFLECT_WING, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
-  WING_RING, corner, rot, rotateOrient,
+  AXIS_FACE_KIND, FACES, FACE_SLOT, MIRROR_SLOT_PERM, ORIENTATIONS, REFLECT_PLATE, REFLECT_SHAPE,
+  REFLECT_WING, REFLECT_X_SHAPE, REFLECT_X_WING, SHAPE_CORNERS,
+  WING_RING, composeOrient, corner, orientDelta, plateFaceDir, rot, rotDir, rotateOrient,
 } from './tables';
 import type { ShapeId } from './types';
 
@@ -85,6 +86,46 @@ describe('tables', () => {
       // each step is a permutation
       const seen = new Set(Array.from({ length: 24 }, (_, o) => rotateOrient(o, axis, 1)));
       expect(seen.size).toBe(24);
+    }
+  });
+
+  it('composeOrient acts like matrix product; orientDelta inverts it', () => {
+    const basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as const;
+    for (let a = 0; a < 24; a++) {
+      for (let b = 0; b < 24; b++) {
+        const c = composeOrient(a, b);
+        for (const v of basis)
+          expect(rotDir(c, v)).toEqual(rotDir(a, rotDir(b, v)));
+        expect(composeOrient(orientDelta(a, b), b)).toBe(a);
+      }
+    }
+  });
+
+  it('REFLECT_PLATE: involution, and the decorated face maps covariantly', () => {
+    for (const axis of [0, 1, 2] as const) {
+      for (let o = 0; o < 24; o++) {
+        const r = REFLECT_PLATE[axis][o];
+        expect(REFLECT_PLATE[axis][r]).toBe(o);
+        const d = plateFaceDir(o);
+        const mirrored = [...d];
+        mirrored[axis] = -mirrored[axis] + 0;        // -0 → +0
+        expect([...plateFaceDir(r)]).toEqual(mirrored);
+      }
+    }
+  });
+
+  it('MIRROR_SLOT_PERM: involutive face bijections preserving the face kind', () => {
+    for (const axis of [0, 1, 2] as const) {
+      for (const s of Object.keys(FACES).map(Number) as ShapeId[]) {
+        const perm = MIRROR_SLOT_PERM[axis][s];
+        expect(perm.length).toBe(6);
+        expect(new Set(perm).size).toBe(6);
+        for (let i = 0; i < 6; i++) {
+          expect(perm[perm[i]]).toBe(i);
+          // a geometric symmetry of the solid maps quads to quads, tris to tris
+          expect(AXIS_FACE_KIND[s][perm[i]]).toBe(AXIS_FACE_KIND[s][i]);
+        }
+      }
     }
   });
 });
