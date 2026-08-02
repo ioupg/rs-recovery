@@ -16,6 +16,7 @@ import { getTuning, subscribeTuning } from './renderTuning';
 import { applyLibMaterial, bindEnvMap, clearcoatFlips } from './libMaterial';
 import type { EnvBinding } from './libMaterial';
 import { patchScreenAO } from './ssao';
+import { requestFrame } from './invalidate';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -131,7 +132,9 @@ export class MaterialCache {
   /* apply() and applyLibMaterial flag needsUpdate themselves on the
      transitions that actually recompile (map/clearcoat flips) — everything
      else is uniform-only, so no blanket needsUpdate here: that would
-     recompile-check every cached material on every store/library tick. */
+     recompile-check every cached material on every store/library tick.
+     The single funnel for every material-level visual change — arms the
+     on-demand render loop. */
   private refreshAll(): void {
     for (const e of this.cache.values()) {
       this.apply(e.m, e.slot, e.v);
@@ -141,5 +144,6 @@ export class MaterialCache {
         e.m.needsUpdate = true;   // null → map is a program change
       }
     }
+    requestFrame();
   }
 }

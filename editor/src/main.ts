@@ -19,6 +19,7 @@ import { MaterialCache } from './render/materialCache';
 import { getManifest, initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
 import { ScreenAO } from './render/ssao';
+import { consumeFrame, requestFrame } from './render/invalidate';
 import { Viewports } from './render/viewports';
 import { ShapePreview } from './render/shapePreview';
 import { ViewCube } from './render/viewCube';
@@ -207,6 +208,9 @@ async function init(): Promise<void> {
       dirty = false;
       view.rebuild();
       view.setSelection(state.selection);
+      /* geometry changed and lights are world-fixed — the one moment the
+         shadow map actually needs re-rendering (autoUpdate is off) */
+      sceneCtx.renderer.shadowMap.needsUpdate = true;
     });
   };
 
@@ -226,11 +230,18 @@ async function init(): Promise<void> {
   new ResizeObserver(() => viewports.onResize()).observe(refs.stage);
   viewports.onResize();
 
+  /* Render on demand: every visual mutation arms requestFrame() at its
+     funnel (viewport input, ShipView mutations, MaterialCache.refreshAll,
+     texture/env/tuning changes) and the camera reports while it is still
+     easing — an idle tab skips the SSAO chain, shadow pass and main render
+     entirely and the rAF returns immediately. */
   let last = performance.now();
   const tick = (now: number): void => {
     requestAnimationFrame(tick);
-    viewports.update((now - last) / 1000);
+    const moving = viewports.update((now - last) / 1000);
     last = now;
+    if (moving) requestFrame();
+    if (!consumeFrame()) return;
     ssao.render(sceneCtx.scene, viewports.camera);
     viewports.render(sceneCtx.scene);
     viewCube.update();

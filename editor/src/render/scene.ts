@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { applyEnvironment, subscribeEnvironment } from './environment';
 import { TONE_CURVES, getTuning, subscribeTuning } from './renderTuning';
+import { requestFrame } from './invalidate';
 import type { Vec3 } from '../core/types';
 
 export interface SceneCtx {
@@ -28,14 +29,22 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   /* r185 deprecated PCFSoftShadowMap (it silently falls back to PCF, which
      honours shadow.radius) — ask for PCF directly */
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  /* lights are world-fixed, so the shadow map depends only on geometry and
+     the key light frustum — re-rendered on rebuild/fitShadow, not per frame */
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0e14);
   // no fog — editor wants a flat, legible background at any zoom
 
   applyEnvironment(renderer, scene);
-  /* the main loop renders every frame, so an env swap shows up by itself */
-  const unsubEnv = subscribeEnvironment(() => applyEnvironment(renderer, scene));
+  /* rendering is on-demand — an env swap (or its async HDR landing) must
+     arm a frame itself */
+  const unsubEnv = subscribeEnvironment(() => {
+    applyEnvironment(renderer, scene);
+    requestFrame();
+  });
 
   /* Rig rebalanced for shadow legibility (notes/09-render-path.md §3.3-3.4):
      the IBL is the ambient — hemi is only a faint colour wash on dielectrics
@@ -89,6 +98,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
     key.intensity = t.keyIntensity;
     rim.color.set(t.rimColor);
     rim.intensity = t.rimIntensity;
+    requestFrame();
   };
   applyTuning();
   const unsubTune = subscribeTuning(applyTuning);
@@ -129,6 +139,8 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
     sc.near = 0.1;
     sc.far = rad * 3.2;
     sc.updateProjectionMatrix();
+    renderer.shadowMap.needsUpdate = true;
+    requestFrame();
   }
 
   function dispose(): void {

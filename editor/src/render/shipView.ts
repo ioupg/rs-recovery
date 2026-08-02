@@ -15,6 +15,7 @@ import type { MaterialCache } from './materialCache';
 import { NAKED_PICK_SCALE, buildShipGeometry } from './geometry';
 import { buildPickGeometry } from './pick';
 import { AO_LAYER } from './ssao';
+import { requestFrame } from './invalidate';
 import type { BuildOptions, PickTri } from './geometryTypes';
 
 export type EntityResolver = (uid: number) => Cube | Wing | undefined;
@@ -97,6 +98,7 @@ export class ShipView {
   setOptions(o: RenderSettings): void { this.options = o; }
 
   rebuild(): void {
+    requestFrame();
     this.disposeShipMeshes();
     if (!this.doc) return;
     const doc = this.doc;
@@ -194,6 +196,7 @@ export class ShipView {
   }
 
   setSelection(uids: Set<number>): void {
+    requestFrame();
     clearGroup(this.selectionGroup);
     for (const uid of uids) {
       const e = this.resolveEntity(uid);
@@ -203,6 +206,7 @@ export class ShipView {
   }
 
   setGhost(g: GhostSpec | null): void {
+    requestFrame();
     clearGroup(this.ghostGroup);
     if (!g) return;
     const color = g.valid ? 0x4a90d9 : 0xd64545;
@@ -237,6 +241,7 @@ export class ShipView {
   /** plate-tool preview: the plate as it would sit on the hovered face —
       blue when a click would mount it, brass over an existing plate */
   setPlateGhost(positions: number[] | null, wouldAdd: boolean): void {
+    requestFrame();
     clearGroup(this.plateGhostGroup);
     if (!positions || !positions.length) return;
     const geo = new THREE.BufferGeometry();
@@ -250,6 +255,7 @@ export class ShipView {
   }
 
   setSymmetryPlane(planeX2: number | null): void {
+    requestFrame();
     clearGroup(this.symmetryGroup);
     if (planeX2 === null) return;
     const bounds = this.boundsOfDoc();

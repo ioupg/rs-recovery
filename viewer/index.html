@@ -630,11 +630,17 @@ function setSpace(on) {
 const orbit = { th:.7, ph:1.15, r:20, tgt:new THREE.Vector3(), vth:0, vph:0, auto:true };
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (reduced) orbit.auto = false;
+/* render on demand: state changes arm a frame; the loop then only draws
+   while spinning / gliding / flying or when a frame is owed. With auto-spin
+   on (the default) the loop runs continuously — the win is spin-off/idle. */
+let needsFrame = true;
+const requestFrame = () => { needsFrame = true; };
 let drag=null;
 renderer.domElement.addEventListener('pointerdown', e=>{ drag={x:e.clientX,y:e.clientY,b:e.button}; e.target.setPointerCapture(e.pointerId); });
 renderer.domElement.addEventListener('pointermove', e=>{
   if(!drag) return;
   const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag.x=e.clientX; drag.y=e.clientY;
+  requestFrame();
   if (drag.b===2) {           // pan
     const s = orbit.r*.0016;
     const fwd = new THREE.Vector3().subVectors(orbit.tgt, camera.position).normalize();
@@ -645,7 +651,7 @@ renderer.domElement.addEventListener('pointermove', e=>{
 });
 renderer.domElement.addEventListener('pointerup', ()=>drag=null);
 renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault());
-renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); camTween=null; orbit.r *= (1 + Math.sign(e.deltaY)*.09); orbit.r=Math.max(3,Math.min(120,orbit.r)); }, {passive:false});
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); camTween=null; orbit.r *= (1 + Math.sign(e.deltaY)*.09); orbit.r=Math.max(3,Math.min(120,orbit.r)); requestFrame(); }, {passive:false});
 
 /* ════════ ship mesh builder ════════ */
 let group=null, edgeLines=null, meshSolid=null;
@@ -1127,6 +1133,9 @@ function tweenCamera(r1, dur) {
   camTween = { t0: performance.now(), dur, r0: orbit.r, r1 };
 }
 function stepFlights(now) {
+  /* report activity from BEFORE stepping: a flight that just finished still
+     owes one settled frame */
+  const active = !!camTween || FLIGHTS.length > 0;
   if (camTween) {
     const t = Math.min(1, (now - camTween.t0) / camTween.dur);
     orbit.r = camTween.r0 + (camTween.r1 - camTween.r0) * easeOutQuint(t);
@@ -1150,6 +1159,7 @@ function stepFlights(now) {
       if (t >= 1) { FLIGHTS.splice(i, 1); f.g.position.z = f.cz; groupUnfade(f.g); }
     }
   }
+  return active;
 }
 
 /* ════════ title block ════════ */
@@ -1200,12 +1210,13 @@ for (const r of RANKS) {
 function select(name) {
   nav.querySelectorAll('.ship').forEach(x=>x.classList.toggle('sel', x.dataset.name===name));
   buildShip(name);
+  requestFrame();
 }
 
 /* ════════ toggles ════════ */
 const btn = (id, fn) => { const b=document.getElementById(id);
   b.onclick=()=>{ const on = b.getAttribute('aria-pressed')!=='true';
-    b.setAttribute('aria-pressed', on); fn(on); }; };
+    b.setAttribute('aria-pressed', on); fn(on); requestFrame(); }; };
 btn('btnRot',  on => orbit.auto = on);
 btn('btnEdge', on => { edgesOn=on; if(edgeLines) edgeLines.visible=on; });
 /* in parts mode the tint and occlusion are baked per vertex at build time,
@@ -1223,6 +1234,7 @@ document.getElementById('btnPlate').onclick = () => {
   const n = PLATE_MESH.quad_all ? PLATE_MESH.quad_all.length : 1;
   const v = setPlate((plateVariant + 1) % n);
   document.getElementById('btnPlate').textContent = 'plate ' + (plateVariant+1) + '/' + n;
+  requestFrame();
 };
 btn('btnSpace', on => { spaceOn=on; setSpace(on); });
 btn('btnBloom', on => { bloomOn=on; if (on) initBloom(); setBloomLook(on); });
@@ -1264,14 +1276,22 @@ function resize() {
   const w=stage.clientWidth, h=stage.clientHeight;
   renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
   if (composer) composer.setSize(w,h);
+  requestFrame();
 }
 addEventListener('resize', resize); resize();
 (function tick(){
   requestAnimationFrame(tick);
-  stepFlights(performance.now());
-  if (orbit.auto && !drag) orbit.th += .0022;
-  orbit.th += orbit.vth; orbit.ph += orbit.vph;
-  orbit.vth*=.88; orbit.vph*=.88;
+  const flying = stepFlights(performance.now());
+  const spinning = orbit.auto && !drag;
+  if (spinning) orbit.th += .0022;
+  /* damped glide with a cutoff — the decay must terminate, not trail forever */
+  const gliding = Math.abs(orbit.vth) > 1e-5 || Math.abs(orbit.vph) > 1e-5;
+  if (gliding) {
+    orbit.th += orbit.vth; orbit.ph += orbit.vph;
+    orbit.vth*=.88; orbit.vph*=.88;
+  } else { orbit.vth = 0; orbit.vph = 0; }
+  if (!(flying || spinning || gliding || needsFrame)) return;
+  needsFrame = false;
   orbit.ph = Math.max(.08, Math.min(Math.PI-.08, orbit.ph));
   camera.position.set(
     orbit.tgt.x + orbit.r*Math.sin(orbit.ph)*Math.sin(orbit.th),

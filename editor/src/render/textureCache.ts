@@ -19,6 +19,7 @@
 
 import * as THREE from 'three';
 import type { PbrFlags } from '../core/library';
+import { requestFrame } from './invalidate';
 
 let manifest: PbrFlags = {};
 
@@ -74,6 +75,7 @@ function getBase(url: string, colorSpace: THREE.ColorSpace): THREE.Texture {
         for (const c of clones) c.needsUpdate = true;
         pendingClones.delete(key);
       }
+      requestFrame();   // a map landing changes the next frame
       for (const fn of loadListeners) fn(url);
     });
     t.flipY = false;

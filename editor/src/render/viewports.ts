@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import type { Vec3 } from '../core/types';
+import { requestFrame } from './invalidate';
 
 interface PerspState {
   camera: THREE.PerspectiveCamera;
@@ -55,9 +56,13 @@ export class Viewports {
     this.renderer.render(scene, this.persp.camera);
   }
 
-  /** apply orbit damping / snap easing; call once per frame before render() */
-  update(_dt: number): void {
+  /** apply orbit damping / snap easing; call once per frame before render().
+      Returns whether the camera is still animating (snap easing or damped
+      glide) — the render-on-demand loop keeps drawing while it is. The decay
+      cuts off below an epsilon instead of trailing asymptotically forever. */
+  update(_dt: number): boolean {
     const p = this.persp;
+    let moving = false;
     if (this.snap) {
       const s = this.snap;
       p.th += (s.th - p.th) * 0.22;
@@ -66,9 +71,13 @@ export class Viewports {
         p.th = s.th; p.ph = s.ph;
         this.snap = null;
       }
-    } else {
+      moving = true;
+    } else if (Math.abs(p.vth) > 1e-5 || Math.abs(p.vph) > 1e-5) {
       p.th += p.vth; p.ph += p.vph;
       p.vth *= 0.88; p.vph *= 0.88;
+      moving = true;
+    } else {
+      p.vth = 0; p.vph = 0;
     }
     p.ph = clamp(p.ph, PH_MIN, PH_MAX);
     p.camera.position.set(
@@ -77,6 +86,7 @@ export class Viewports {
       p.tgt.z + p.r * Math.sin(p.ph) * Math.cos(p.th),
     );
     p.camera.lookAt(p.tgt);
+    return moving;
   }
 
   /** the perspective camera — the SSAO prepass renders through it */
@@ -99,6 +109,7 @@ export class Viewports {
     if (d < -Math.PI) d += twoPi;
     this.snap = { th: p.th + d, ph: clamp(ph, PH_MIN, PH_MAX) };
     p.vth = 0; p.vph = 0;
+    requestFrame();
   }
 
   /** nudge the orbit by pixel deltas (view-cube drag) */
@@ -106,6 +117,7 @@ export class Viewports {
     this.snap = null;
     this.persp.vth = -dx * 0.005;
     this.persp.vph = -dy * 0.005;
+    requestFrame();
   }
 
   pickRay(clientX: number, clientY: number): { camera: THREE.Camera; ndc: THREE.Vector2 } | null {
@@ -127,6 +139,7 @@ export class Viewports {
       (bounds.min[2] + bounds.max[2]) / 2,
     );
     this.persp.r = Math.max(diag * 1.35, 8);
+    requestFrame();
   }
 
   onResize(): void {
@@ -135,6 +148,7 @@ export class Viewports {
     this.renderer.setSize(this.width, this.height, false);
     this.persp.camera.aspect = this.width / this.height;
     this.persp.camera.updateProjectionMatrix();
+    requestFrame();
   }
 
   dispose(): void {
@@ -182,6 +196,7 @@ export class Viewports {
     if (!d) return;
     const dx = e.clientX - d.lastX, dy = e.clientY - d.lastY;
     d.lastX = e.clientX; d.lastY = e.clientY;
+    requestFrame();
     if (d.mode === 'orbit') {
       this.snap = null;
       this.persp.vth = -dx * 0.005;
@@ -197,6 +212,7 @@ export class Viewports {
     e.preventDefault();
     const factor = 1 + Math.sign(e.deltaY) * 0.09;
     this.persp.r = clamp(this.persp.r * factor, 3, 120);
+    requestFrame();
   };
 
   private readonly onContextMenu = (e: MouseEvent): void => { e.preventDefault(); };
