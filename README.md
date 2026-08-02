@@ -3,7 +3,8 @@
 Reverse-engineering of `.rsconstruction`, the ship-design format of **RedStarEditor**
 (2014, in-house "SharedTec" engine), and a browser viewer for the recovered fleet.
 
-**Live viewer: https://rs.ioupg.com** · mesh catalogue: https://rs.ioupg.com/parts
+**Live viewer: https://rs.ioupg.com** · constructor: https://rs.ioupg.com/editor/ ·
+mesh catalogue: https://rs.ioupg.com/parts
 
 **Picking this up again? Read [`notes/05-status.md`](notes/05-status.md)** — what is
 solved, what is provably blocked, and where work stopped.
@@ -22,8 +23,9 @@ wing/module elements.
 | `decode_meshes.py` | part-mesh decoder → catalogue, hull shapes, plates, module cages |
 | `recovered/*.json` | decoded ships and meshes |
 | `viewer/` | offline three.js viewer (self-contained; also what's deployed) |
+| `editor/` | ship constructor (Vite + TS + three) — its own worker, see `editor/ARCHITECTURE.md` |
 | `notes/` | working notes: inventory, format spec, results, screenshots |
-| `wrangler.jsonc` | Cloudflare Worker config for the deployment |
+| `wrangler.jsonc` | Cloudflare Worker config for the viewer (`rs-fleet-registry`) |
 
 Everything learned from the executable lives in `notes/02-format-final.md` and
 `notes/03-results.md`, with disassembly addresses.
@@ -45,3 +47,14 @@ wrangler deploy                  # publishes viewer/ to rs.ioupg.com
 ```
 
 The viewer also runs straight from disk — open `viewer/index.html`.
+
+The editor deploys separately as its own worker (`rs-editor`, route
+`rs.ioupg.com/editor*` — build output is gitignored, never committed):
+
+```sh
+cd editor
+npm run deploy                   # tsc + vite build -> dist/, wrangler deploy
+```
+
+The editor's vite plugin regenerates its data from `viewer/ships.js` /
+`viewer/shapes.js` on every dev/build, so rerun it after a pipeline rerun.
