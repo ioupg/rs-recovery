@@ -29,7 +29,10 @@ export const ENVIRONMENTS: readonly EnvironmentDef[] = [
 /** scene-level IBL strengths: the viewport keeps reflections restrained so
     the editing read stays flat; previews push them so materials pop. These
     multiply each material's own envIntensity (the "reflections" slider). */
-export const VIEWPORT_ENV_INTENSITY = 0.35;
+/* 0.35 → 0.5 after Neutral tone mapping landed: the top end is compressed
+   now, so more ambient lifts the midtones without clipping — and gives the
+   AO more indirect light to carve visibly out of. */
+export const VIEWPORT_ENV_INTENSITY = 0.5;
 export const PREVIEW_ENV_INTENSITY = 0.9;
 
 const ENV_KEY = 'rs.editor.env.v1';

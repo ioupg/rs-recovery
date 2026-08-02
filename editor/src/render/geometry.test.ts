@@ -56,19 +56,21 @@ const doc = docOf('m12-centurion');       // 13 cubes, 9 compartments, no wings
 const winged = docOf('m14-hound');        // 21 cubes, 5 wings
 
 describe('buildShipGeometry', () => {
-  it('box mode: whole triangles, AO-only colours, one group per slot', () => {
+  it('box mode: whole triangles, AO in R / unit tone in G, one group per slot', () => {
     const built = buildShipGeometry(doc, data, opts({ mode: 'box' }));
     const pos = built.geometry.getAttribute('position');
     expect(pos.count).toBeGreaterThan(0);
     expect(pos.array.length % 9).toBe(0);              // 3 verts x 3 floats per tri
 
+    /* channel-split colour (see geometry.ts header): R = AO, G = tone, B = 1.
+       Box mode has no tone jitter, so G is exactly 1. */
     const col = built.geometry.getAttribute('color').array;
     expect(col.length).toBe(pos.array.length);
     for (let i = 0; i < col.length; i += 3) {
       expect(col[i]).toBeGreaterThan(0);
       expect(col[i]).toBeLessThanOrEqual(1);
-      expect(col[i + 1]).toBe(col[i]);                 // grayscale: tint is material-side
-      expect(col[i + 2]).toBe(col[i]);
+      expect(col[i + 1]).toBe(1);
+      expect(col[i + 2]).toBe(1);
     }
     expect(col.some((v, i) => v < 1 && i % 3 === 0)).toBe(true);   // AO actually varies
 
@@ -109,13 +111,16 @@ describe('buildShipGeometry', () => {
       expect(uv.array[i]).toBeGreaterThanOrEqual(0);
       expect(uv.array[i]).toBeLessThanOrEqual(1);
     }
-    /* tone jitter rides on top of AO (±6%), so shade tops out at 1.06 */
+    /* R = AO in (0,1]; G = facet tone jitter (0.94–1.06); B = 1 */
     const col = built.geometry.getAttribute('color').array;
-    for (let i = 0; i < col.length; i++) {
+    for (let i = 0; i < col.length; i += 3) {
       expect(col[i]).toBeGreaterThan(0);
-      expect(col[i]).toBeLessThanOrEqual(1.06);
+      expect(col[i]).toBeLessThanOrEqual(1);
+      expect(col[i + 1]).toBeGreaterThanOrEqual(0.94);
+      expect(col[i + 1]).toBeLessThanOrEqual(1.06);
+      expect(col[i + 2]).toBe(1);
     }
-    expect(col.some(v => v > 1)).toBe(true);
+    expect(col.some((v, i) => i % 3 === 1 && v > 1)).toBe(true);   // jitter actually varies
     expect(built.edgesThreshold).toBe(25);
     expect(built.edges!.getAttribute('position').count).toBe(pos.count);
   });

@@ -6,8 +6,12 @@
    Deviation from the reference, by design: the viewer bakes the compartment
    tint into the vertex colour and draws everything with one material. Here the
    tint lives in the per-slot material and the triangles are bucketed by
-   MaterialSlot into contiguous geometry groups, so the vertex colour carries
-   grayscale shading only — AO x facet tone x brightness factor. */
+   MaterialSlot into contiguous geometry groups. The vertex colour is a data
+   channel, not a colour: R carries baked occupancy AO, G carries facet tone x
+   brightness, B is unused (1). The ssao.ts material patch routes R through
+   three's occlusion path (indirect diffuse + specular — combined with the
+   screen-space AO) and multiplies only G into albedo; GLB export bakes RxG
+   back to grayscale for external viewers (exportGlb.ts). */
 
 import * as THREE from 'three';
 import type { MaterialSlot, ShapeId, ShipDoc } from '../core/types';
@@ -59,7 +63,8 @@ class SlotBuckets {
   constructor(private readonly uvOn: boolean) {}
 
   vertex(
-    slot: MaterialSlot, p: readonly number[], n: readonly number[], shade: number,
+    slot: MaterialSlot, p: readonly number[], n: readonly number[],
+    ao: number, tone: number,
     uv?: readonly [number, number], tex: string | null = null,
   ): void {
     const key = `${slot} ${tex ?? ''}`;
@@ -67,7 +72,7 @@ class SlotBuckets {
     if (!b) { b = { slot, tex, pos: [], nrm: [], col: [], uv: [] }; this.bins.set(key, b); }
     b.pos.push(p[0], p[1], p[2]);
     b.nrm.push(n[0], n[1], n[2]);
-    b.col.push(shade, shade, shade);
+    b.col.push(ao, tone, 1);
     if (this.uvOn) b.uv.push(uv ? uv[0] : 0, uv ? uv[1] : 0);
   }
 
@@ -79,7 +84,8 @@ class SlotBuckets {
       double-sided shading for the sign — we settle the sign here instead). */
   fan(
     slot: MaterialSlot, vs: readonly V3[], n: V3,
-    shade: (i: number) => number, uv?: (i: number) => readonly [number, number],
+    ao: (i: number) => number, tone: number,
+    uv?: (i: number) => readonly [number, number],
     tex: string | null = null,
   ): void {
     for (let i = 1; i < vs.length - 1; i++) {
@@ -87,7 +93,7 @@ class SlotBuckets {
       let tn = n;
       if (len(w) > 1e-12) { tn = norm(w); if (dot(tn, n) < 0) tn = [-tn[0], -tn[1], -tn[2]]; }
       for (const j of [0, i, i + 1])
-        this.vertex(slot, vs[j], tn, shade(j), uv ? uv(j) : undefined, tex);
+        this.vertex(slot, vs[j], tn, ao(j), tone, uv ? uv(j) : undefined, tex);
     }
   }
 
@@ -165,7 +171,7 @@ function addWings(
       ? (i: number): [number, number] =>
           [dot(sub(vs[i], vs[0]), e1), dot(sub(vs[i], vs[0]), e2)]
       : uvOn ? () => BLANK_UV as [number, number] : undefined;
-    b.fan('wing', vs, n, i => (aoOn ? wao[i] : 1), uvFn, solar && uvOn ? 'wing_solar' : null);
+    b.fan('wing', vs, n, i => (aoOn ? wao[i] : 1), 1, uvFn, solar && uvOn ? 'wing_solar' : null);
     loops.push(vs);
   }
   return loops;
@@ -204,7 +210,7 @@ function addShells(
           M[3] * n0[0] + M[4] * n0[1] + M[5] * n0[2],
           M[6] * n0[0] + M[7] * n0[1] + M[8] * n0[2],
         ];
-        b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1,
+        b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1, 1,
           texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
       }
     }
@@ -256,7 +262,7 @@ function addModules(
           M[3] * n0[0] + M[4] * n0[1] + M[5] * n0[2],
           M[6] * n0[0] + M[7] * n0[1] + M[8] * n0[2],
         ];
-        b.vertex(slot, w, n, (aoOn ? vertexAO(w, n, occ, own) : 1) * MODULE_BRIGHT,
+        b.vertex(slot, w, n, aoOn ? vertexAO(w, n, occ, own) : 1, MODULE_BRIGHT,
           texOn && s.uv ? [s.uv[i * 2], s.uv[i * 2 + 1]] : undefined, stex);
       }
     }
@@ -381,7 +387,7 @@ function addAxisPlates(
       const found = plateMeshFor(cb, sl.o, data, variants, cubeAt, cb.plateKinds?.[i]);
       if (!found) continue;
       emitMountedPart((w, n, uv, tex) => {
-        b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
+        b.vertex(mslot, w, n, aoOn ? vertexAO(w, n, occ, null) : 1, PLATE_BRIGHT, uv, tex ?? null);
       }, [cb.x, cb.y, cb.z], ORIENTATIONS[found.mountO], found.pm, texOn);
     }
   }
@@ -419,7 +425,7 @@ function addNonAxisPlates(
     if (!pm || !Mc) continue;
     const mslot = slotOf(cb.comp);
     emitMountedPart((w, n, uv, tex) => {
-      b.vertex(mslot, w, n, (aoOn ? vertexAO(w, n, occ, null) : 1) * PLATE_BRIGHT, uv, tex ?? null);
+      b.vertex(mslot, w, n, aoOn ? vertexAO(w, n, occ, null) : 1, PLATE_BRIGHT, uv, tex ?? null);
     }, [cb.x, cb.y, cb.z], Mc, pm, texOn);
   }
 }
@@ -439,7 +445,7 @@ function addWingSkins(
     const M = ORIENTATIONS[el.o];
     if (!pm || !M) return;
     emitMountedPart((w, n, uv, tex) => {
-      b.vertex('wing', w, n, aoOn ? vertexAO(w, n, occ, null) : 1, uv, tex ?? null);
+      b.vertex('wing', w, n, aoOn ? vertexAO(w, n, occ, null) : 1, 1, uv, tex ?? null);
     }, [el.x, el.y, el.z], M, pm, texOn, 'wing_solar');
     skinned.add(i);
   });
@@ -456,7 +462,7 @@ function addExtras(
   if (!doc.extras?.length) return;
   const slot = compSlot(HULL_COMP);
   emitExtras((p, n, uv, tex) => {
-    b.vertex(slot, p, n, aoOn ? vertexAO(p, n, occ, null) : 1,
+    b.vertex(slot, p, n, aoOn ? vertexAO(p, n, occ, null) : 1, 1,
       uv ?? (uvBlank ? BLANK_UV : undefined), tex);
   }, doc.extras, data, texOn);
 }
@@ -519,10 +525,10 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     const n = orient(norm(cross(e1, sub(f.verts[2], f.verts[0]))), cen, f, occ);
     const ownKey = `${Math.floor(cen[0] - 0.3 * n[0])},${Math.floor(cen[1] - 0.3 * n[1])},${Math.floor(cen[2] - 0.3 * n[2])}`;
     const tone = plate ? facetTone(f.k) : 1;
-    const shade = (i: number): number =>
-      (opts.ao ? vertexAO(f.verts[i], n, occ, ownKey) : 1) * tone;
+    const ao = (i: number): number =>
+      opts.ao ? vertexAO(f.verts[i], n, occ, ownKey) : 1;
 
-    if (!plate) { b.fan(slotOf(f.comp), f.verts, n, shade); continue; }
+    if (!plate) { b.fan(slotOf(f.comp), f.verts, n, ao, tone); continue; }
 
     /* planar face UVs, normalized+centered into [0,1] */
     const e2 = cross(n, e1);
@@ -531,7 +537,7 @@ export function buildShipGeometry(doc: ShipDoc, data: GameData, opts: BuildOptio
     const u0 = Math.min(...us), v0 = Math.min(...vs);
     const s = Math.max(Math.max(...us) - u0, Math.max(...vs) - v0) || 1;
     const mu = (1 - (Math.max(...us) - u0) / s) / 2, mv = (1 - (Math.max(...vs) - v0) / s) / 2;
-    b.fan(slotOf(f.comp), f.verts, n, shade, i => f.plain
+    b.fan(slotOf(f.comp), f.verts, n, ao, tone, i => f.plain
       ? BLANK_UV
       : atlasUV(f.comp, (fuv[i][0] - u0) / s + mu, (fuv[i][1] - v0) / s + mv));
   }

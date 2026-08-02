@@ -45,30 +45,46 @@ const whiteTexture = (() => {
 const uAO = { value: whiteTexture as THREE.Texture };
 const uTexel = { value: new THREE.Vector2(1, 1) };
 
-/** Hook a ship material into the screen AO (idempotent per material — call
-    once at creation). Injected after aomap_fragment so it composes with, and
-    behaves exactly like, three's own AO path. */
+/** Hook a ship material into the occlusion pipeline (idempotent per material
+    — call once at creation). Two edits to the stock shader:
+
+    1. color_fragment — the vertex colour is our data channel (geometry.ts):
+       only G (facet tone x brightness) multiplies albedo; the stock chunk
+       would tint by the whole RGB and paint the ship red-green.
+    2. after aomap_fragment — occlusion = min(baked R channel, screen AO):
+       the bake sees geometry the depth buffer can't (offscreen, deep
+       pockets), SSAO resolves sub-cell contact the 1-cell bake can't.
+       Applied exactly like three's own aoMap: indirect diffuse directly,
+       indirect specular through the computeSpecularOcclusion curve
+       (inlined — the chunk's version is guarded behind USE_AOMAP). */
 export function patchScreenAO(m: THREE.MeshPhysicalMaterial): void {
   m.onBeforeCompile = shader => {
     shader.uniforms.tScreenAO = uAO;
     shader.uniforms.uScreenAOTexel = uTexel;
     shader.fragmentShader =
       'uniform sampler2D tScreenAO;\nuniform vec2 uScreenAOTexel;\n' +
-      shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
+      shader.fragmentShader
+        .replace('#include <color_fragment>', `
+	#if defined( USE_COLOR )
+		diffuseColor.rgb *= vColor.g;
+	#endif`)
+        .replace('#include <aomap_fragment>', `#include <aomap_fragment>
 	{
 		float ssAO = texture2D( tScreenAO, gl_FragCoord.xy * uScreenAOTexel ).r;
+		#if defined( USE_COLOR )
+			ssAO = min( ssAO, vColor.r );
+		#endif
 		reflectedLight.indirectDiffuse *= ssAO;
 		#if defined( USE_CLEARCOAT )
 			clearcoatSpecularIndirect *= ssAO;
 		#endif
 		#if defined( USE_ENVMAP ) && defined( STANDARD )
-			// three's computeSpecularOcclusion, inlined (its chunk guard is aoMap-only)
 			float ssDotNV = saturate( dot( geometryNormal, geometryViewDir ) );
 			reflectedLight.indirectSpecular *= saturate( pow( ssDotNV + ssAO, exp2( - 16.0 * material.roughness - 1.0 ) ) - 1.0 + ssAO );
 		#endif
 	}`);
   };
-  m.customProgramCacheKey = () => 'screen-ao';
+  m.customProgramCacheKey = () => 'screen-ao-v2';
 }
 
 const FS_VERT = /* glsl */`

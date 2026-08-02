@@ -212,5 +212,15 @@ exists and makes the ×10-style HDRI hand-scaling unnecessary.
   for viewer parity and its tests). Knobs at the top of `ssao.ts`:
   `AO_RADIUS 0.7` (cells), `AO_INTENSITY 1.0`, `AO_SAMPLES 16`; runs at full
   drawing-buffer resolution — halve it there first if a weak GPU struggles.
+- **§3.2 completed in full** (the channel split, on top of SSAO): the vertex
+  colour is now a data channel — R = baked occupancy AO, G = facet tone ×
+  brightness, B = 1 (`geometry.ts` header). The material patch multiplies
+  only G into albedo and feeds `min(R, screenAO)` through the occlusion
+  path, so the long-range bake kills env speculars in pockets the depth
+  buffer can't see, while SSAO handles sub-cell contact. GLB export bakes
+  R×G back to grayscale for external viewers (`exportGlb.ts`).
+  `AO_INTENSITY` runs at 2.0 — 1.0 read as barely-there at editor scale.
+- `VIEWPORT_ENV_INTENSITY` 0.35 → 0.5: midtone lift, safe under the tone
+  mapper, and gives AO more indirect light to carve out of.
 - Still open: §3.5 atlas colorSpace (+ palette retouch), thumbnail env
   order-dependence, the two-knob env-intensity sync.

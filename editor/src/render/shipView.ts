@@ -103,10 +103,10 @@ export class ShipView {
 
     const opts: BuildOptions = {
       mode: this.options.mode,
-      /* the per-vertex occupancy AO bake is superseded by the screen-space AO
-         prepass (ssao.ts) — the options.ao toggle now drives that instead.
-         The bake stays available in geometry.ts for viewer parity/tests. */
-      ao: false,
+      /* baked occupancy AO rides the vertex R channel; combined with the
+         screen-space AO in the ssao.ts material patch (min of the two — the
+         bake knows offscreen geometry, SSAO knows sub-cell contact) */
+      ao: this.options.ao,
       textures: this.options.textures,
       plates: this.options.plates,
       plateVariants: this.options.plateVariants,
