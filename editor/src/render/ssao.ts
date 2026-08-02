@@ -21,16 +21,17 @@
    the uniform holds a 1x1 white texture and the passes are skipped. */
 
 import * as THREE from 'three';
+import { getTuning } from './renderTuning';
 
 /** ship solid meshes enable this layer; the depth prepass renders only it,
     so overlays/grid/ghosts neither occlude nor receive */
 export const AO_LAYER = 1;
 
-/* world-space knobs, in cell units (cell = 1). RADIUS is how far a surface
-   looks for occluders — 0.7 spans a plate relief and reaches the neighbouring
-   cell wall without greying whole hull bays. */
-const AO_RADIUS = 0.7;
-const AO_INTENSITY = 2.0;
+/* Radius and intensity are live dials (renderTuning.ts, the Render tab),
+   re-read every frame. Radius is in cell units (cell = 1): how far a surface
+   looks for occluders — the default 0.7 spans a plate relief and reaches the
+   neighbouring cell wall without greying whole hull bays. Only the
+   compile-time constants stay here: */
 /** cos-threshold against self-occlusion on flat facets */
 const AO_BIAS = 0.08;
 const AO_SAMPLES = 16;
@@ -208,8 +209,8 @@ export class ScreenAO {
         tDepth: { value: null },
         uProjInv: { value: new THREE.Matrix4() },
         uTexel: { value: new THREE.Vector2() },
-        uRadius: { value: AO_RADIUS },
-        uIntensity: { value: AO_INTENSITY },
+        uRadius: { value: 0.7 },      // overwritten from the tuning every frame
+        uIntensity: { value: 2 },
         uProjScale: { value: 1 },
       },
       depthTest: false,
@@ -224,7 +225,7 @@ export class ScreenAO {
         tDepth: { value: null },
         uProjInv: { value: new THREE.Matrix4() },
         uDir: { value: new THREE.Vector2() },
-        uDepthSigma: { value: AO_RADIUS * 0.5 },
+        uDepthSigma: { value: 0.35 },  // tracks radius × 0.5, set every frame
       },
       depthTest: false,
       depthWrite: false,
@@ -269,8 +270,11 @@ export class ScreenAO {
     r.shadowMap.autoUpdate = prevShadowAuto;
 
     /* 2 — AO estimate */
+    const tune = getTuning();
     const au = this.aoMat.uniforms;
     au.tDepth.value = this.depthRT.depthTexture;
+    au.uRadius.value = tune.aoRadius;
+    au.uIntensity.value = tune.aoIntensity;
     (au.uProjInv.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     (au.uTexel.value as THREE.Vector2).set(1 / this.size.x, 1 / this.size.y);
     au.uProjScale.value = 0.5 * this.size.y * camera.projectionMatrix.elements[5];
@@ -281,6 +285,7 @@ export class ScreenAO {
     /* 3 — depth-aware blur, X then Y */
     const bu = this.blurMat.uniforms;
     bu.tDepth.value = this.depthRT.depthTexture;
+    bu.uDepthSigma.value = tune.aoRadius * 0.5;
     (bu.uProjInv.value as THREE.Matrix4).copy(camera.projectionMatrixInverse);
     this.fsMesh.material = this.blurMat;
     bu.tAO.value = this.aoRT.texture;

@@ -5,7 +5,8 @@
    and the space-mode extras, which the editor doesn't use. */
 
 import * as THREE from 'three';
-import { VIEWPORT_ENV_INTENSITY, applyEnvironment, subscribeEnvironment } from './environment';
+import { applyEnvironment, subscribeEnvironment } from './environment';
+import { TONE_CURVES, getTuning, subscribeTuning } from './renderTuning';
 import type { Vec3 } from '../core/types';
 
 export interface SceneCtx {
@@ -27,29 +28,26 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   /* r185 deprecated PCFSoftShadowMap (it silently falls back to PCF, which
      honours shadow.radius) — ask for PCF directly */
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  /* Khronos PBR Neutral: compresses HDR highlights (IBL + summed lights used
-     to clip at 1.0 and wash out shadow/AO contrast) while staying
-     near-identity in the midtones — colour-true, unlike ACES/AgX.
-     notes/09-render-path.md §3.1 */
-  renderer.toneMapping = THREE.NeutralToneMapping;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0e14);
   // no fog — editor wants a flat, legible background at any zoom
 
   applyEnvironment(renderer, scene);
-  scene.environmentIntensity = VIEWPORT_ENV_INTENSITY;
   /* the main loop renders every frame, so an env swap shows up by itself */
   const unsubEnv = subscribeEnvironment(() => applyEnvironment(renderer, scene));
 
   /* Rig rebalanced for shadow legibility (notes/09-render-path.md §3.3-3.4):
      the IBL is the ambient — hemi is only a faint colour wash on dielectrics
      (it contributes no specular, so metals never see it), and the key must
-     dominate the unshadowed fill or the shadow term drowns. */
-  const hemi = new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 0.3);
+     dominate the unshadowed fill or the shadow term drowns. Colours and
+     intensities are dials (renderTuning.ts, the Render tab) — applyTuning
+     below stamps them over these construction placeholders; only the hemi
+     ground colour is fixed. */
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x2a3542, 1);
   scene.add(hemi);
 
-  const key = new THREE.DirectionalLight(0xfff2dc, 1.3);
+  const key = new THREE.DirectionalLight(0xffffff, 1);
   key.position.set(6, 10, 4);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -59,11 +57,41 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   scene.add(key);
   scene.add(key.target);
 
-  /* unshadowed, so kept faint — any more and it reads as specular leaking
-     into occluded areas (it has no shadow map to stop it) */
-  const rim = new THREE.DirectionalLight(0x4a90d9, 0.2);
+  /* unshadowed, so kept faint by default — any more and it reads as specular
+     leaking into occluded areas (it has no shadow map to stop it) */
+  const rim = new THREE.DirectionalLight(0xffffff, 1);
   rim.position.set(-8, -4, -6);
   scene.add(rim);
+
+  /* Every look dial routes through the tuning store (Render tab). The default
+     curve is Khronos PBR Neutral: compresses HDR highlights (IBL + summed
+     lights used to clip at 1.0 and wash out shadow/AO contrast) while staying
+     near-identity in the midtones — colour-true, unlike ACES/AgX.
+     notes/09-render-path.md §3.1 */
+  const applyTuning = (): void => {
+    const t = getTuning();
+    const tm = TONE_CURVES.find(c => c.id === t.toneCurve)!.tm;
+    if (renderer.toneMapping !== tm) {
+      renderer.toneMapping = tm;
+      /* three bakes the curve into every program — a switch must recompile */
+      scene.traverse(o => {
+        const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        if (!mat) return;
+        for (const m of Array.isArray(mat) ? mat : [mat]) m.needsUpdate = true;
+      });
+    }
+    renderer.toneMappingExposure = t.exposure;
+    scene.environmentIntensity = t.envIntensity;
+    (scene.background as THREE.Color).set(t.background);
+    hemi.color.set(t.fillColor);
+    hemi.intensity = t.fillIntensity;
+    key.color.set(t.keyColor);
+    key.intensity = t.keyIntensity;
+    rim.color.set(t.rimColor);
+    rim.intensity = t.rimIntensity;
+  };
+  applyTuning();
+  const unsubTune = subscribeTuning(applyTuning);
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(240, 240),
@@ -105,6 +133,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
 
   function dispose(): void {
     unsubEnv();
+    unsubTune();
     floor.geometry.dispose();
     (floor.material as THREE.Material).dispose();
     grid.geometry.dispose();

@@ -209,40 +209,14 @@ main { flex: 1; display: flex; min-height: 0; }
 }
 .mat-body .reset-btn { align-self: flex-start; font-size: 10px; padding: 3px 8px; margin-top: 2px; }
 
-/* info tab: ГОСТ-style stamp + ledger + issues */
-.stamp { border: 1px solid var(--faint); background: rgba(255,255,255,.02); }
-.stamp .row { display: flex; border-top: 1px solid var(--line); }
-.stamp .row:first-child { border-top: 0; }
-.stamp .cell { padding: 5px 8px 4px; min-width: 0; }
-.stamp .cell + .cell { border-left: 1px solid var(--line); }
-.stamp .lab {
-  display: block; color: var(--dim); font-size: 8px;
-  letter-spacing: .18em; text-transform: uppercase; margin-bottom: 1px;
+/* render tab: viewport tuning dials (mat-body carries the row styling) */
+.render-tune.mat-body { display: flex; padding: 2px 0 8px; }
+.render-tune .rt-lab { width: 56px; flex: none; }
+.render-tune select {
+  flex: 1; min-width: 0; padding: 3px 6px;
+  background: var(--panel2); color: var(--ink);
+  border: 1px solid var(--line); font-family: var(--mono); font-size: 11px;
 }
-.stamp .big {
-  font-family: var(--disp); font-size: 16px; font-weight: 600;
-  letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
-}
-.stamp .num { font-size: 13px; color: var(--brass); }
-.stamp .grow { flex: 1; }
-
-.comp-ledger { border-top: 1px solid var(--faint); }
-.crow { display: flex; align-items: center; gap: 7px; padding: 2px 8px; }
-.crow:first-child { padding-top: 5px; }
-.crow:last-child { padding-bottom: 6px; }
-.crow .sw { width: 8px; height: 8px; flex: none; border: 1px solid rgba(255,255,255,.25); }
-.crow .cn { width: 78px; color: var(--ink); flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crow .bar { flex: 1; height: 5px; background: var(--panel2); position: relative; }
-.crow .bar i { position: absolute; inset: 0 auto 0 0; display: block; }
-.crow .ct { width: 22px; text-align: right; color: var(--dim); }
-
-.issues { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
-.issue { font-size: 10px; padding: 4px 6px; border-left: 2px solid var(--faint); background: var(--panel2); }
-.issue.error { border-left-color: var(--star); }
-.issue.warning { border-left-color: var(--brass); }
-.issue .code { color: var(--dim); margin-right: 4px; }
-.issues-empty { font-size: 10px; color: var(--dim); }
 
 /* ── status bar ─────────────────────────────────────── */
 .statusbar {

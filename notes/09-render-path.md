@@ -222,5 +222,21 @@ exists and makes the ×10-style HDRI hand-scaling unnecessary.
   `AO_INTENSITY` runs at 2.0 — 1.0 read as barely-there at editor scale.
 - `VIEWPORT_ENV_INTENSITY` 0.35 → 0.5: midtone lift, safe under the tone
   mapper, and gives AO more indirect light to carve out of.
-- Still open: §3.5 atlas colorSpace (+ palette retouch), thumbnail env
-  order-dependence, the two-knob env-intensity sync.
+- **§3.5 atlas colorSpace fixed** (2026-08-02): `SRGBColorSpace` tag on the
+  CanvasTexture. No palette retouch — PLATE_BRIGHT turned out to be the
+  mesh-mode decoration-plate constant, not on the atlas path (plate-mode
+  facets carry facetTone only), and decoded properly the palette renders as
+  authored, which is the point; taste-tuning now belongs to the Render tab.
+- **Render tab** (2026-08-02, replaces the Info tab): app-global viewport
+  tuning in `render/renderTuning.ts` — an observable persisted store (like
+  the env selection) over tone curve (Neutral/AgX/ACES/linear), exposure,
+  IBL strength, key/fill/rim intensity+colour, SSAO intensity+radius,
+  backdrop colour. `scene.ts` applies it (a curve switch traverses the scene
+  flagging `needsUpdate` — three bakes tone mapping into every program),
+  `ssao.ts` re-reads radius/intensity per frame, `materialCache.ts` takes the
+  IBL strength for EnvBinding — which retires the two-knob env-intensity sync
+  nit: `VIEWPORT_ENV_INTENSITY` is gone, one dial feeds both consumers.
+  Preview contexts stay on fixed defaults (`PREVIEW_ENV_INTENSITY`,
+  Neutral) — thumbnails are product shots. The exposure-slider deferral
+  above is thereby closed.
+- Still open: thumbnail env order-dependence (§3.6).

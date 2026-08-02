@@ -1,12 +1,12 @@
-/* Right panel shell: tab strip [<active tool> | Materials | Info]. The first
-   tab is contextual — its label follows the active tool and switching tools
-   activates it. */
+/* Right panel shell: tab strip [<active tool> | Materials | Render]. The
+   first tab is contextual — its label follows the active tool and switching
+   tools activates it. */
 
 import type { UiContext } from '../context';
 import { h } from '../dom';
 import { buildToolPanel, toolTabLabel } from './toolPanel';
 import { buildMaterialsTab } from './materials';
-import { buildInfoTab } from './info';
+import { buildRenderTab } from './renderTab';
 
 export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: HTMLCanvasElement } {
   host.className = 'rightpanel';
@@ -14,18 +14,18 @@ export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: H
   const tabsRow = h('div', 'tabs');
   const toolTab = h('button', undefined, toolTabLabel(ctx.state.tool));
   const matTab = h('button', undefined, 'Materials');
-  const infoTab = h('button', undefined, 'Info');
-  for (const b of [toolTab, matTab, infoTab]) b.type = 'button';
-  tabsRow.append(toolTab, matTab, infoTab);
+  const renderTab = h('button', undefined, 'Render');
+  for (const b of [toolTab, matTab, renderTab]) b.type = 'button';
+  tabsRow.append(toolTab, matTab, renderTab);
   host.append(tabsRow);
 
   const toolPanel = h('div', 'tabpanel');
   const materialsPanel = h('div', 'tabpanel');
-  const infoPanel = h('div', 'tabpanel');
-  host.append(toolPanel, materialsPanel, infoPanel);
+  const renderPanel = h('div', 'tabpanel');
+  host.append(toolPanel, materialsPanel, renderPanel);
 
   const tabs: [HTMLButtonElement, HTMLElement][] = [
-    [toolTab, toolPanel], [matTab, materialsPanel], [infoTab, infoPanel],
+    [toolTab, toolPanel], [matTab, materialsPanel], [renderTab, renderPanel],
   ];
 
   /* Material assignments are only visible in the textured mesh view, so the
@@ -68,7 +68,7 @@ export function buildRightPanel(host: HTMLElement, ctx: UiContext): { preview: H
 
   const { preview } = buildToolPanel(toolPanel, ctx);
   buildMaterialsTab(materialsPanel, ctx);
-  buildInfoTab(infoPanel, ctx);
+  buildRenderTab(renderPanel);
 
   ctx.state.subscribe(keys => {
     if (keys.includes('tool')) {

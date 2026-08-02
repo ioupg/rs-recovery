@@ -11,7 +11,8 @@ import type { MaterialSlot, Unsubscribe } from '../core/types';
 import type { AssignmentStore, MaterialStore } from '../core/materials';
 import type { MaterialLibrary } from '../core/library';
 import { getAtlasTexture } from './atlas';
-import { VIEWPORT_ENV_INTENSITY, subscribeEnvironment } from './environment';
+import { subscribeEnvironment } from './environment';
+import { getTuning, subscribeTuning } from './renderTuning';
 import { applyLibMaterial, bindEnvMap, clearcoatFlips } from './libMaterial';
 import type { EnvBinding } from './libMaterial';
 import { patchScreenAO } from './ssao';
@@ -50,7 +51,16 @@ export class MaterialCache {
     this.unsubscribes.push(store.subscribe(() => this.refreshAll()));
     this.unsubscribes.push(library.subscribe(() => this.refreshAll()));
     this.unsubscribes.push(assignments.subscribe(() => this.refreshAll()));
-    if (env) this.unsubscribes.push(subscribeEnvironment(() => this.refreshAll()));
+    if (env) {
+      this.unsubscribes.push(subscribeEnvironment(() => this.refreshAll()));
+      /* of all the tuning dials only the IBL strength reaches the materials
+         (via EnvBinding) — don't refresh on exposure/light drags */
+      let lastEnvIntensity = getTuning().envIntensity;
+      this.unsubscribes.push(subscribeTuning(() => {
+        const v = getTuning().envIntensity;
+        if (v !== lastEnvIntensity) { lastEnvIntensity = v; this.refreshAll(); }
+      }));
+    }
   }
 
   get(slot: MaterialSlot, v: MaterialVariant): THREE.MeshPhysicalMaterial {
@@ -89,7 +99,7 @@ export class MaterialCache {
   private apply(m: THREE.MeshPhysicalMaterial, slot: MaterialSlot, v: MaterialVariant): void {
     const envMap = this.env?.();
     const bind: EnvBinding | undefined =
-      envMap ? { map: envMap, intensity: VIEWPORT_ENV_INTENSITY } : undefined;
+      envMap ? { map: envMap, intensity: getTuning().envIntensity } : undefined;
     if (v.map) {
       const id = this.assignments.get(v.map);
       const resolved = this.library.byId(id) ?? this.library.byId(v.map);

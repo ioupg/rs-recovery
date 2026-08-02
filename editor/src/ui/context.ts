@@ -2,7 +2,7 @@
    core/history) so the UI compiles and can be developed independently of the
    core implementation; main.ts supplies the real objects. */
 
-import type { ChangeKind, Cube, Issue, ShipDoc, Unsubscribe, Wing } from '../core/types';
+import type { ChangeKind, Cube, ShipDoc, Unsubscribe, Wing } from '../core/types';
 import type { AssignmentStore, MaterialStore } from '../core/materials';
 import type { MaterialLibrary } from '../core/library';
 import type { GameData } from '../data/loader';
@@ -36,7 +36,6 @@ export interface UiActions {
   deleteLocalDesign(name: string): void;
   listLocalDesigns(): SavedDesign[];
   fitView(): void;
-  validateNow(): Issue[];
   /** open the "Load template design" modal */
   openLoadDialog(): void;
   /** rotate the active piece / selection ±90° about a world axis */

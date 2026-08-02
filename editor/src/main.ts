@@ -10,7 +10,6 @@ import { History } from './core/history';
 import { AssignmentStore, buildDefaultMaterials, MaterialStore } from './core/materials';
 import { buildLibraryDefaults, legacyMaterials, MaterialLibrary } from './core/library';
 import { exportShipJson, importShip, importShipJson } from './core/io';
-import { validate } from './core/validation';
 import type { ShipDoc } from './core/types';
 import { EditorState } from './editor/state';
 import { EditorController } from './editor/controller';
@@ -145,7 +144,6 @@ async function init(): Promise<void> {
       const b = view?.boundsOfDoc();
       if (b && viewports) { viewports.fit(b); fitShadow(b); }
     },
-    validateNow: () => validate(model, data.systems),
     openLoadDialog: () => refs.openLoadDialog(),
     rotateActive: (axis, dir) => controller.rotateAxis(axis, dir),
     mirrorActive: axis => controller.mirrorAxis(axis),
