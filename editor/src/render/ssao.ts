@@ -30,7 +30,7 @@ export const AO_LAYER = 1;
    looks for occluders — 0.7 spans a plate relief and reaches the neighbouring
    cell wall without greying whole hull bays. */
 const AO_RADIUS = 0.7;
-const AO_INTENSITY = 1.0;
+const AO_INTENSITY = 2.0;
 /** cos-threshold against self-occlusion on flat facets */
 const AO_BIAS = 0.08;
 const AO_SAMPLES = 16;
