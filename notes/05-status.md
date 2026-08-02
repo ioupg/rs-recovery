@@ -285,7 +285,9 @@ Space lighting is set in `setSpace()`; the sky is the `SKY_FRAG` shader.
 
 `00-overview.md` (inventory, includes the first wrong theory) → `02-format-final.md`
 (format spec) → `03-results.md` (validation + rendering) → `04-parts-mapping.md`
-(mesh mapping, including the negative results) → this file.
+(mesh mapping, including the negative results) → this file. For the editor's
+lighting/shading pipeline (state + known defects + fix plan) see
+`09-render-path.md`.
 
 Screenshots in `notes/img/`. The 33 MB debug exe is gitignored; everything learned
 from it is recorded here with addresses.

@@ -31,12 +31,14 @@ function axisLines(len: number, opacity: number, o?: number): THREE.Group {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position',
       new THREE.Float32BufferAttribute([0, 0, 0, d[0] * len, d[1] * len, d[2] * len], 3));
+    /* toneMapped false everywhere a material carries a UI hue: the axis
+       red/green/blue must render exactly, not through the PBR output curve */
     g.add(new THREE.Line(geo,
-      new THREE.LineBasicMaterial({ color: AXIS_COLORS[a], transparent: true, opacity })));
+      new THREE.LineBasicMaterial({ color: AXIS_COLORS[a], transparent: true, opacity, toneMapped: false })));
     /* arrow head as a small cone */
     const cone = new THREE.Mesh(
       new THREE.ConeGeometry(0.045 * len, 0.14 * len, 6),
-      new THREE.MeshBasicMaterial({ color: AXIS_COLORS[a], transparent: true, opacity }));
+      new THREE.MeshBasicMaterial({ color: AXIS_COLORS[a], transparent: true, opacity, toneMapped: false }));
     cone.position.set(d[0] * len, d[1] * len, d[2] * len);
     cone.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0), new THREE.Vector3(d[0], d[1], d[2]));
@@ -54,6 +56,9 @@ export class ShapePreview {
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    /* same output transform as the main viewport (scene.ts) or the preview
+       stops matching what gets placed */
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
     this.camera.position.set(1.9, 1.5, 2.4);
     this.camera.lookAt(0, -0.05, 0);
@@ -106,7 +111,7 @@ export class ShapePreview {
     const lgeo = new THREE.BufferGeometry();
     lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
     this.content.add(new THREE.LineSegments(lgeo,
-      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.5 })));
+      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.5, toneMapped: false })));
     /* the piece's own axes, rotated with it — this IS the orientation display */
     this.content.add(axisLines(0.95, 0.95, spec.o));
 
@@ -151,6 +156,7 @@ function thumbCtx(size: number) {
   if (!thumb) {
     const canvas = document.createElement('canvas');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.toneMapping = THREE.NeutralToneMapping;   // match the viewport
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
     camera.position.set(1.9, 1.5, 2.4);
@@ -202,7 +208,7 @@ export function renderThumbnail(spec: ThumbSpec, size = 56): string {
     /* schematic linework, same voice as the shape/wing thumbnails */
     const edges = new THREE.LineSegments(
       new THREE.EdgesGeometry(geo, 25),
-      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6 }));
+      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6, toneMapped: false }));
     edges.position.copy(mesh.position);
     const wrap = new THREE.Group();
     wrap.add(mesh, edges);
@@ -233,7 +239,7 @@ export function renderThumbnail(spec: ThumbSpec, size = 56): string {
     const lgeo = new THREE.BufferGeometry();
     lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
     t.content.add(new THREE.LineSegments(lgeo,
-      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6 })));
+      new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.6, toneMapped: false })));
   }
 
   t.renderer.render(t.scene, t.camera);
@@ -338,6 +344,7 @@ export class MaterialPreview {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.NeutralToneMapping;   // match the viewport
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.1, 20);
 
     applyEnvironment(this.renderer, this.scene);

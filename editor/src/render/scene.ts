@@ -25,6 +25,11 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  /* Khronos PBR Neutral: compresses HDR highlights (IBL + summed lights used
+     to clip at 1.0 and wash out shadow/AO contrast) while staying
+     near-identity in the midtones — colour-true, unlike ACES/AgX.
+     notes/09-render-path.md §3.1 */
+  renderer.toneMapping = THREE.NeutralToneMapping;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0e14);
@@ -35,10 +40,14 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   /* the main loop renders every frame, so an env swap shows up by itself */
   const unsubEnv = subscribeEnvironment(() => applyEnvironment(renderer, scene));
 
-  const hemi = new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 0.9);
+  /* Rig rebalanced for shadow legibility (notes/09-render-path.md §3.3-3.4):
+     the IBL is the ambient — hemi is only a faint colour wash on dielectrics
+     (it contributes no specular, so metals never see it), and the key must
+     dominate the unshadowed fill or the shadow term drowns. */
+  const hemi = new THREE.HemisphereLight(0x9fb6c9, 0x2a3542, 0.3);
   scene.add(hemi);
 
-  const key = new THREE.DirectionalLight(0xfff2dc, 1.15);
+  const key = new THREE.DirectionalLight(0xfff2dc, 1.3);
   key.position.set(6, 10, 4);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -48,7 +57,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   scene.add(key);
   scene.add(key.target);
 
-  const rim = new THREE.DirectionalLight(0x4a90d9, 0.45);
+  /* unshadowed, so kept faint — any more and it reads as specular leaking
+     into occluded areas (it has no shadow map to stop it) */
+  const rim = new THREE.DirectionalLight(0x4a90d9, 0.2);
   rim.position.set(-8, -4, -6);
   scene.add(rim);
 
@@ -64,6 +75,7 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   scene.add(floor);
 
   const grid = new THREE.GridHelper(40, 40, 0x2a3948, 0x1a2430);
+  (grid.material as THREE.Material).toneMapped = false;
   scene.add(grid);
 
   const shipRoot = new THREE.Group();

@@ -143,9 +143,11 @@ export class ShipView {
          surface. depthWrite off so the veil never occludes the cages inside;
          being transparent it renders after them and reads as a skin. */
       const ghost = buildShipGeometry(doc, this.data, { ...opts, mode: 'box', ao: false });
+      /* overlays carry exact UI hues — keep them off the tone-mapping curve
+         (renderer runs NeutralToneMapping since the render-path fix) */
       const sil = new THREE.Mesh(ghost.geometry, new THREE.MeshBasicMaterial({
         color: 0x6f8fa8, transparent: true, opacity: 0.1,
-        depthWrite: false, side: THREE.DoubleSide,
+        depthWrite: false, side: THREE.DoubleSide, toneMapped: false,
       }));
       this.sceneCtx.shipRoot.add(sil);
       this.silhouette = sil;
@@ -155,7 +157,7 @@ export class ShipView {
       const eg = new THREE.EdgesGeometry(built.edges, built.edgesThreshold);
       const lines = new THREE.LineSegments(
         eg,
-        new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.18 }),
+        new THREE.LineBasicMaterial({ color: 0xb8cbd9, transparent: true, opacity: 0.18, toneMapped: false }),
       );
       this.sceneCtx.shipRoot.add(lines);
       this.edgeLines = lines;
@@ -217,13 +219,14 @@ export class ShipView {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const mat = new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: 0.45, depthTest: true, side: THREE.DoubleSide,
+      toneMapped: false,
     });
     this.ghostGroup.add(new THREE.Mesh(geo, mat));
     /* crisp contour so orientation reads even against same-hue hull */
     const lgeo = new THREE.BufferGeometry();
     lgeo.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
     this.ghostGroup.add(new THREE.LineSegments(lgeo,
-      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })));
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, toneMapped: false })));
   }
 
   /** plate-tool preview: the plate as it would sit on the hovered face —
@@ -237,7 +240,7 @@ export class ShipView {
     this.plateGhostGroup.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
       color: wouldAdd ? 0x4a90d9 : 0xc9a227,
       transparent: true, opacity: wouldAdd ? 0.5 : 0.35,
-      depthTest: true, side: THREE.DoubleSide,
+      depthTest: true, side: THREE.DoubleSide, toneMapped: false,
     })));
   }
 
@@ -253,6 +256,7 @@ export class ShipView {
     const geo = new THREE.PlaneGeometry(sizeZ, sizeY);
     const mat = new THREE.MeshBasicMaterial({
       color: 0x4a90d9, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false,
+      toneMapped: false,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.rotation.y = Math.PI / 2;
@@ -271,7 +275,8 @@ export class ShipView {
 
   private buildCellBox(x: number, y: number, z: number): THREE.LineSegments {
     const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02));
-    const seg = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0xc9a227 }));
+    const seg = new THREE.LineSegments(geo,
+      new THREE.LineBasicMaterial({ color: 0xc9a227, toneMapped: false }));
     seg.position.set(x + 0.5, y + 0.5, z + 0.5);
     return seg;
   }
@@ -290,7 +295,8 @@ export class ShipView {
     for (const v of verts) pos.push(cx + (v[0] - cx) * 1.02, cy + (v[1] - cy) * 1.02, cz + (v[2] - cz) * 1.02);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    return new THREE.LineLoop(geo, new THREE.LineBasicMaterial({ color: 0xc9a227 }));
+    return new THREE.LineLoop(geo,
+      new THREE.LineBasicMaterial({ color: 0xc9a227, toneMapped: false }));
   }
 
   private disposeShipMeshes(): void {
