@@ -14,6 +14,7 @@ import type { SceneCtx } from './scene';
 import type { MaterialCache } from './materialCache';
 import { NAKED_PICK_SCALE, buildShipGeometry } from './geometry';
 import { buildPickGeometry } from './pick';
+import { AO_LAYER } from './ssao';
 import type { BuildOptions, PickTri } from './geometryTypes';
 
 export type EntityResolver = (uid: number) => Cube | Wing | undefined;
@@ -102,7 +103,10 @@ export class ShipView {
 
     const opts: BuildOptions = {
       mode: this.options.mode,
-      ao: this.options.ao,
+      /* the per-vertex occupancy AO bake is superseded by the screen-space AO
+         prepass (ssao.ts) — the options.ao toggle now drives that instead.
+         The bake stays available in geometry.ts for viewer parity/tests. */
+      ao: false,
       textures: this.options.textures,
       plates: this.options.plates,
       plateVariants: this.options.plateVariants,
@@ -134,6 +138,7 @@ export class ShipView {
     const mesh = new THREE.Mesh(built.geometry, materials);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.layers.enable(AO_LAYER);   // the SSAO depth prepass sees only this
     this.sceneCtx.shipRoot.add(mesh);
     this.mesh = mesh;
 

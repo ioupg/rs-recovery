@@ -127,6 +127,10 @@ physics, not a bug. Note this widens the deliberate deviation from the viewer
 (which bakes tint into vColor); parity note in `geometry.ts:6-10` should grow
 a line.
 
+**Superseded in implementation** — the channel-split plan above was replaced
+by screen-space AO (user call: the cell-grid bake's resolution wasn't worth
+keeping). See §5.
+
 ### 3.3 Double-provisioned ambient — why shadows wash out
 
 Shadowed hull still receives hemi 0.9 + rim 0.45 + full IBL (env shadows don't
@@ -158,8 +162,10 @@ pass as §3.1 since both shift plate brightness.
 
 ### 3.6 Nits
 
-- `key.shadow.radius = 4` (`scene.ts:47`) is ignored under `PCFSoftShadowMap`
-  — dead line; radius only drives PCF/VSM.
+- ~~`key.shadow.radius = 4` is ignored under `PCFSoftShadowMap`~~ — wrong:
+  r185 deprecates `PCFSoftShadowMap` at runtime and falls back to
+  `PCFShadowMap`, which *does* honour the radius. `scene.ts` now requests
+  `PCFShadowMap` explicitly (same behaviour, no console warning).
 - Thumbnail lighting is order-dependent: `ensureThumbEnv`
   (`shapePreview.ts:264`) binds the env to the shared thumb scene only when
   the first *material* thumb renders, so shape thumbnails rendered before that
@@ -186,3 +192,25 @@ contact occlusion at plate-relief scale that the cell-grid bake cannot see —
 real cost and a new post pipeline, so only if §3.2 proves insufficient; an
 exposure slider next to the environment picker is cheap once tone mapping
 exists and makes the ×10-style HDRI hand-scaling unnecessary.
+
+## 5. Applied (2026-08-01, branch fix/render-path)
+
+- **Steps 1–2** landed as committed: Neutral tone mapping in all four
+  contexts, `toneMapped: false` on every UI-hue overlay material, rig
+  rebalanced to hemi 0.3 / key 1.3 / rim 0.2. Verified against master with
+  A/B screenshots (clipped-white env highlights now roll off; hull texture
+  tones survive).
+- **Step 3 shipped as screen-space AO** (`render/ssao.ts`), not the vertex
+  channel split: a depth prepass of the ship solid only (`AO_LAYER`), 16-tap
+  view-space hemisphere obscurance with depth-derivative normals, separable
+  depth-aware blur, then every viewport ship material samples the result
+  right after `aomap_fragment` — indirect diffuse ×AO, indirect specular
+  through the inlined `computeSpecularOcclusion` curve, clearcoat included;
+  direct light and emissive untouched. The `ao` toolbar toggle drives the
+  prepass; the per-vertex occupancy bake is retired from the editor build
+  (`shipView.ts` passes `ao: false` — the bake code stays in `geometry.ts`
+  for viewer parity and its tests). Knobs at the top of `ssao.ts`:
+  `AO_RADIUS 0.7` (cells), `AO_INTENSITY 1.0`, `AO_SAMPLES 16`; runs at full
+  drawing-buffer resolution — halve it there first if a weak GPU struggles.
+- Still open: §3.5 atlas colorSpace (+ palette retouch), thumbnail env
+  order-dependence, the two-knob env-intensity sync.

@@ -79,6 +79,11 @@ export class Viewports {
     p.camera.lookAt(p.tgt);
   }
 
+  /** the perspective camera — the SSAO prepass renders through it */
+  get camera(): THREE.PerspectiveCamera {
+    return this.persp.camera;
+  }
+
   /** current orbit angles — the view cube draws from these */
   getOrbit(): { th: number; ph: number } {
     return { th: this.persp.th, ph: this.persp.ph };

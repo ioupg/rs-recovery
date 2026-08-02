@@ -24,7 +24,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneCtx {
   const renderer = new THREE.WebGLRenderer({ antialias: true, canvas });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  /* r185 deprecated PCFSoftShadowMap (it silently falls back to PCF, which
+     honours shadow.radius) — ask for PCF directly */
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   /* Khronos PBR Neutral: compresses HDR highlights (IBL + summed lights used
      to clip at 1.0 and wash out shadow/AO contrast) while staying
      near-identity in the midtones — colour-true, unlike ACES/AgX.

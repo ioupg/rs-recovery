@@ -14,6 +14,7 @@ import { getAtlasTexture } from './atlas';
 import { VIEWPORT_ENV_INTENSITY, subscribeEnvironment } from './environment';
 import { applyLibMaterial, bindEnvMap, clearcoatFlips } from './libMaterial';
 import type { EnvBinding } from './libMaterial';
+import { patchScreenAO } from './ssao';
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -61,6 +62,8 @@ export class MaterialCache {
         side: v.frontSide ? THREE.FrontSide : THREE.DoubleSide,
         flatShading: false,
       });
+      /* every viewport ship material samples the screen AO (white when off) */
+      patchScreenAO(m);
       if (!v.map && v.textured) m.map = getAtlasTexture();
       this.apply(m, slot, v);
       e = { slot, v, m };

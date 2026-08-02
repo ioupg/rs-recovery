@@ -19,6 +19,7 @@ import { environmentTexture } from './render/environment';
 import { MaterialCache } from './render/materialCache';
 import { getManifest, initTextureMaps } from './render/textureCache';
 import { ShipView } from './render/shipView';
+import { ScreenAO } from './render/ssao';
 import { Viewports } from './render/viewports';
 import { ShapePreview } from './render/shapePreview';
 import { ViewCube } from './render/viewCube';
@@ -162,6 +163,8 @@ async function init(): Promise<void> {
   const sceneCtx = createScene(canvas);
   fitShadow = b => sceneCtx.fitShadow(b as { min: [number, number, number]; max: [number, number, number] });
   viewports = new Viewports(refs.stage, sceneCtx.renderer);
+  const ssao = new ScreenAO(sceneCtx.renderer);
+  ssao.enabled = state.render.ao;
   const cache = new MaterialCache(materials, library, assignments,
     () => environmentTexture(sceneCtx.renderer));
   view = new ShipView(sceneCtx, cache, data, uid => model.byUid(uid));
@@ -214,7 +217,11 @@ async function init(): Promise<void> {
     if (kind !== 'meta' && kind !== 'materials') scheduleRebuild();
   });
   state.subscribe(keys => {
-    if (keys.includes('render')) { view.setOptions(state.render); scheduleRebuild(); }
+    if (keys.includes('render')) {
+      view.setOptions(state.render);
+      ssao.enabled = state.render.ao;
+      scheduleRebuild();
+    }
     if (keys.includes('selection')) view.setSelection(state.selection);
   });
 
@@ -226,6 +233,7 @@ async function init(): Promise<void> {
     requestAnimationFrame(tick);
     viewports.update((now - last) / 1000);
     last = now;
+    ssao.render(sceneCtx.scene, viewports.camera);
     viewports.render(sceneCtx.scene);
     viewCube.update();
   };
